@@ -1,0 +1,50 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Matches,
+  MaxLength
+} from 'class-validator';
+
+const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export class CreateKitchenDto {
+  @ApiProperty()
+  @IsUUID()
+  hospitalId!: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  locationId?: string;
+
+  @ApiProperty({ example: 'Main Kitchen' })
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(255)
+  kitchenName!: string;
+
+  @ApiProperty({ example: 'KIT001' })
+  @IsNotEmpty()
+  @IsString()
+  @MaxLength(50)
+  kitchenCode!: string;
+
+  @ApiPropertyOptional({ example: '07:00' })
+  @IsOptional()
+  @Matches(timePattern, { message: 'openingTime must use HH:mm format.' })
+  openingTime?: string;
+
+  @ApiPropertyOptional({ example: '23:00' })
+  @IsOptional()
+  @Matches(timePattern, { message: 'closingTime must use HH:mm format.' })
+  closingTime?: string;
+
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+}

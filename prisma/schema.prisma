@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  employeeCode String     @unique @map("employee_code")
+  name         String
+  email        String?    @unique
+  mobile       String     @unique
+  status       UserStatus @default(ACTIVE)
+  hospitalId   String?    @map("hospital_id") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at")
+  createdBy    String?    @map("created_by") @db.Uuid
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  updatedBy    String?    @map("updated_by") @db.Uuid
+  deletedAt    DateTime?  @map("deleted_at")
+
+  auditLogs AuditLog[]
+  hospital  Hospital?  @relation(fields: [hospitalId], references: [id])
+  roles     UserRole[]
+
+  @@index([hospitalId])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Role {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String       @unique
+  description String?
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  createdBy   String?      @map("created_by") @db.Uuid
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+  updatedBy   String?      @map("updated_by") @db.Uuid
+  deletedAt   DateTime?    @map("deleted_at")
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@index([deletedAt])
+  @@map("roles")
+}
+
+model Permission {
+  id          String    @id @default(uuid()) @db.Uuid
+  code        String    @unique
+  module      String
+  action      String
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at")
+
+  roles RolePermission[]
+
+  @@index([module, action])
+  @@index([deletedAt])
+  @@map("permissions")
+}
+
+model UserRole {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  roleId    String    @map("role_id") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at")
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  updatedBy String?   @map("updated_by") @db.Uuid
+  deletedAt DateTime? @map("deleted_at")
+
+  role Role @relation(fields: [roleId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+  @@index([deletedAt])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String    @id @default(uuid()) @db.Uuid
+  roleId       String    @map("role_id") @db.Uuid
+  permissionId String    @map("permission_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at")
+
+  permission Permission @relation(fields: [permissionId], references: [id])
+  role       Role       @relation(fields: [roleId], references: [id])
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@index([deletedAt])
+  @@map("role_permissions")
+}
+
+model Hospital {
+  id            String    @id @default(uuid()) @db.Uuid
+  hospitalCode  String    @unique @map("hospital_code")
+  hospitalName  String    @map("hospital_name")
+  address       String?
+  city          String?
+  state         String?
+  gstApplicable Boolean   @default(true) @map("gst_applicable")
+  billPrefix    String?   @map("bill_prefix")
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  deletedAt     DateTime? @map("deleted_at")
+
+  auditLogs   AuditLog[]
+  counters    Counter[]
+  kitchens    Kitchen[]
+  locations   Location[]
+  restaurants Restaurant[]
+  stores      Store[]
+  users       User[]
+
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("hospitals")
+}
+
+model Location {
+  id           String    @id @default(uuid()) @db.Uuid
+  hospitalId   String    @map("hospital_id") @db.Uuid
+  locationName String    @map("location_name")
+  building     String?
+  floor        String?
+  area         String?
+  address      String?
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at")
+
+  hospital    Hospital     @relation(fields: [hospitalId], references: [id])
+  kitchens    Kitchen[]
+  restaurants Restaurant[]
+  stores      Store[]
+
+  @@index([hospitalId])
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("locations")
+}
+
+model Store {
+  id         String    @id @default(uuid()) @db.Uuid
+  hospitalId String    @map("hospital_id") @db.Uuid
+  locationId String?   @map("location_id") @db.Uuid
+  storeCode  String    @map("store_code")
+  storeName  String    @map("store_name")
+  storeType  String?   @map("store_type")
+  address    String?
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  createdBy  String?   @map("created_by") @db.Uuid
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  updatedBy  String?   @map("updated_by") @db.Uuid
+  deletedAt  DateTime? @map("deleted_at")
+
+  hospital    Hospital     @relation(fields: [hospitalId], references: [id])
+  location    Location?    @relation(fields: [locationId], references: [id])
+  restaurants Restaurant[]
+
+  @@unique([hospitalId, storeCode])
+  @@index([hospitalId])
+  @@index([locationId])
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("stores")
+}
+
+model Kitchen {
+  id          String    @id @default(uuid()) @db.Uuid
+  hospitalId  String    @map("hospital_id") @db.Uuid
+  locationId  String?   @map("location_id") @db.Uuid
+  kitchenCode String    @map("kitchen_code")
+  kitchenName String    @map("kitchen_name")
+  openingTime String?   @map("opening_time") @db.VarChar(5)
+  closingTime String?   @map("closing_time") @db.VarChar(5)
+  isActive    Boolean   @default(true) @map("is_active")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by") @db.Uuid
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  deletedAt   DateTime? @map("deleted_at")
+
+  hospital    Hospital     @relation(fields: [hospitalId], references: [id])
+  location    Location?    @relation(fields: [locationId], references: [id])
+  restaurants Restaurant[]
+
+  @@unique([hospitalId, kitchenCode])
+  @@index([hospitalId])
+  @@index([locationId])
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("kitchens")
+}
+
+model Restaurant {
+  id                       String    @id @default(uuid()) @db.Uuid
+  hospitalId               String    @map("hospital_id") @db.Uuid
+  locationId               String?   @map("location_id") @db.Uuid
+  storeId                  String?   @map("store_id") @db.Uuid
+  kitchenId                String?   @map("kitchen_id") @db.Uuid
+  restaurantCode           String    @map("restaurant_code")
+  restaurantName           String    @map("restaurant_name")
+  gstNumber                String?   @map("gst_number")
+  panNumber                String?   @map("pan_number")
+  fssaiNumber              String?   @map("fssai_number")
+  address                  String?
+  openingTime              String?   @map("opening_time") @db.VarChar(5)
+  closingTime              String?   @map("closing_time") @db.VarChar(5)
+  normalDiscountApplicable Boolean   @default(false) @map("normal_discount_applicable")
+  staffDiscountApplicable  Boolean   @default(false) @map("staff_discount_applicable")
+  onlineOrderingEnabled    Boolean   @default(false) @map("online_ordering_enabled")
+  inRoomDiningEnabled      Boolean   @default(false) @map("in_room_dining_enabled")
+  b2cQrEnabled             Boolean   @default(false) @map("b2c_qr_enabled")
+  upiId                    String?   @map("upi_id")
+  bankName                 String?   @map("bank_name")
+  bankBranch               String?   @map("bank_branch")
+  sunBu                    String?   @map("sun_bu")
+  sunT1                    String?   @map("sun_t1")
+  sunT2                    String?   @map("sun_t2")
+  isActive                 Boolean   @default(true) @map("is_active")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  createdBy                String?   @map("created_by") @db.Uuid
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  updatedBy                String?   @map("updated_by") @db.Uuid
+  deletedAt                DateTime? @map("deleted_at")
+
+  counters Counter[]
+  hospital Hospital  @relation(fields: [hospitalId], references: [id])
+  kitchen  Kitchen?  @relation(fields: [kitchenId], references: [id])
+  location Location? @relation(fields: [locationId], references: [id])
+  store    Store?    @relation(fields: [storeId], references: [id])
+
+  @@unique([hospitalId, restaurantCode])
+  @@index([hospitalId])
+  @@index([locationId])
+  @@index([storeId])
+  @@index([kitchenId])
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("restaurants")
+}
+
+model Counter {
+  id               String    @id @default(uuid()) @db.Uuid
+  hospitalId       String    @map("hospital_id") @db.Uuid
+  restaurantId     String    @map("restaurant_id") @db.Uuid
+  counterCode      String    @map("counter_code")
+  counterName      String    @map("counter_name")
+  posDeviceId      String?   @map("pos_device_id")
+  paymentDeviceId  String?   @map("payment_device_id")
+  pineLabsDeviceId String?   @map("pine_labs_device_id")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  createdBy        String?   @map("created_by") @db.Uuid
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  updatedBy        String?   @map("updated_by") @db.Uuid
+  deletedAt        DateTime? @map("deleted_at")
+
+  hospital   Hospital   @relation(fields: [hospitalId], references: [id])
+  restaurant Restaurant @relation(fields: [restaurantId], references: [id])
+
+  @@unique([restaurantId, counterCode])
+  @@index([hospitalId])
+  @@index([restaurantId])
+  @@index([deletedAt])
+  @@index([isActive])
+  @@map("counters")
+}
+
+model AuditLog {
+  id         String    @id @default(uuid()) @db.Uuid
+  hospitalId String?   @map("hospital_id") @db.Uuid
+  userId     String?   @map("user_id") @db.Uuid
+  entityName String    @map("entity_name")
+  entityId   String    @map("entity_id") @db.Uuid
+  action     String
+  oldValue   Json?     @map("old_value")
+  newValue   Json?     @map("new_value")
+  ipAddress  String?   @map("ip_address")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  createdBy  String?   @map("created_by") @db.Uuid
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  updatedBy  String?   @map("updated_by") @db.Uuid
+  deletedAt  DateTime? @map("deleted_at")
+
+  hospital Hospital? @relation(fields: [hospitalId], references: [id])
+  user     User?     @relation(fields: [userId], references: [id])
+
+  @@index([entityName, entityId])
+  @@index([hospitalId])
+  @@index([userId])
+  @@index([deletedAt])
+  @@map("audit_logs")
+}
