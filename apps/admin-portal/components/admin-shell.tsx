@@ -2,15 +2,19 @@
 
 import { Button } from '@aahar/ui';
 import {
+  CalendarClock,
   ChefHat,
   CreditCard,
   Hospital,
   LayoutDashboard,
   LogOut,
   Menu,
+  PackageOpen,
   Store,
+  Tags,
   Utensils,
-  X
+  UsersRound,
+  X,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -25,7 +29,14 @@ const navigation = [
   { href: '/masters/stores', icon: Store, label: 'Stores' },
   { href: '/masters/kitchens', icon: ChefHat, label: 'Kitchens' },
   { href: '/masters/restaurants', icon: Utensils, label: 'Restaurants' },
-  { href: '/masters/counters', icon: CreditCard, label: 'Counters' }
+  { href: '/masters/counters', icon: CreditCard, label: 'Counters' },
+  { href: '/masters/item-categories', icon: Tags, label: 'Item Categories' },
+  { href: '/masters/items', icon: PackageOpen, label: 'Items' },
+  { href: '/masters/employees', icon: UsersRound, label: 'Employees' },
+  { href: '/masters/time-slots', icon: CalendarClock, label: 'Time Slots' },
+  { href: '/masters/store-items', icon: Store, label: 'Store Items' },
+  { href: '/masters/kitchen-items', icon: ChefHat, label: 'Kitchen Items' },
+  { href: '/masters/restaurant-menus', icon: Utensils, label: 'Restaurant Menus' },
 ];
 
 function SidebarContent({ onNavigate }: Readonly<{ onNavigate?: () => void }>) {
@@ -101,7 +112,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
 
   return (
     <div className="min-h-screen bg-[#f5faf8] text-slate-950">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r bg-white px-5 py-6 shadow-sm shadow-slate-900/5 lg:block">
+      <aside className="fixed inset-y-0 left-0 hidden w-72 overflow-y-auto border-r bg-white px-5 py-6 shadow-sm shadow-slate-900/5 lg:block">
         <SidebarContent />
       </aside>
 
@@ -113,7 +124,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
             onClick={() => setIsMobileMenuOpen(false)}
             type="button"
           />
-          <aside className="relative h-full w-72 bg-white px-5 py-6 shadow-xl">
+          <aside className="relative h-full w-72 overflow-y-auto bg-white px-5 py-6 shadow-xl">
             <div className="mb-6 flex justify-end">
               <Button
                 aria-label="Close navigation"

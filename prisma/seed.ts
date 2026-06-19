@@ -36,7 +36,43 @@ const defaultPermissions = [
   ['COUNTER_VIEW', 'COUNTER', 'VIEW', 'View counters'],
   ['COUNTER_UPDATE', 'COUNTER', 'UPDATE', 'Update counters'],
   ['COUNTER_DELETE', 'COUNTER', 'DELETE', 'Disable counters'],
-  ['AUDIT_LOG_VIEW', 'AUDIT_LOG', 'VIEW', 'View audit logs']
+  ['ITEM_CATEGORY_CREATE', 'ITEM_CATEGORY', 'CREATE', 'Create item categories'],
+  ['ITEM_CATEGORY_VIEW', 'ITEM_CATEGORY', 'VIEW', 'View item categories'],
+  ['ITEM_CATEGORY_UPDATE', 'ITEM_CATEGORY', 'UPDATE', 'Update item categories'],
+  ['ITEM_CATEGORY_DELETE', 'ITEM_CATEGORY', 'DELETE', 'Disable item categories'],
+  ['ITEM_CREATE', 'ITEM', 'CREATE', 'Create items'],
+  ['ITEM_VIEW', 'ITEM', 'VIEW', 'View items'],
+  ['ITEM_UPDATE', 'ITEM', 'UPDATE', 'Update items'],
+  ['ITEM_DELETE', 'ITEM', 'DELETE', 'Disable items'],
+  ['EMPLOYEE_CREATE', 'EMPLOYEE', 'CREATE', 'Create employees'],
+  ['EMPLOYEE_VIEW', 'EMPLOYEE', 'VIEW', 'View employees'],
+  ['EMPLOYEE_UPDATE', 'EMPLOYEE', 'UPDATE', 'Update employees'],
+  ['EMPLOYEE_DELETE', 'EMPLOYEE', 'DELETE', 'Disable employees'],
+  ['TIME_SLOT_CREATE', 'TIME_SLOT', 'CREATE', 'Create time slots'],
+  ['TIME_SLOT_VIEW', 'TIME_SLOT', 'VIEW', 'View time slots'],
+  ['TIME_SLOT_UPDATE', 'TIME_SLOT', 'UPDATE', 'Update time slots'],
+  ['TIME_SLOT_DELETE', 'TIME_SLOT', 'DELETE', 'Disable time slots'],
+  ['STORE_ITEM_CREATE', 'STORE_ITEM', 'CREATE', 'Create store item mappings'],
+  ['STORE_ITEM_VIEW', 'STORE_ITEM', 'VIEW', 'View store item mappings'],
+  ['STORE_ITEM_UPDATE', 'STORE_ITEM', 'UPDATE', 'Update store item mappings'],
+  ['STORE_ITEM_DELETE', 'STORE_ITEM', 'DELETE', 'Disable store item mappings'],
+  ['KITCHEN_ITEM_CREATE', 'KITCHEN_ITEM', 'CREATE', 'Create kitchen item mappings'],
+  ['KITCHEN_ITEM_VIEW', 'KITCHEN_ITEM', 'VIEW', 'View kitchen item mappings'],
+  ['KITCHEN_ITEM_UPDATE', 'KITCHEN_ITEM', 'UPDATE', 'Update kitchen item mappings'],
+  ['KITCHEN_ITEM_DELETE', 'KITCHEN_ITEM', 'DELETE', 'Disable kitchen item mappings'],
+  ['RESTAURANT_MENU_CREATE', 'RESTAURANT_MENU', 'CREATE', 'Create restaurant menu mappings'],
+  ['RESTAURANT_MENU_VIEW', 'RESTAURANT_MENU', 'VIEW', 'View restaurant menu mappings'],
+  ['RESTAURANT_MENU_UPDATE', 'RESTAURANT_MENU', 'UPDATE', 'Update restaurant menu mappings'],
+  ['RESTAURANT_MENU_DELETE', 'RESTAURANT_MENU', 'DELETE', 'Disable restaurant menu mappings'],
+  ['AUDIT_LOG_VIEW', 'AUDIT_LOG', 'VIEW', 'View audit logs'],
+] as const;
+
+const defaultTimeSlots = [
+  ['Breakfast', '07:00', '10:30', false],
+  ['Lunch', '12:00', '15:00', false],
+  ['Dinner', '19:00', '22:30', false],
+  ['All Time', null, null, true],
+  ['24x7', '00:00', '23:59', true],
 ] as const;
 
 async function main() {
@@ -48,64 +84,64 @@ async function main() {
             action,
             code,
             description,
-            module
+            module,
           },
           update: {
             action,
             deletedAt: null,
             description,
-            module
+            module,
           },
           where: {
-            code
-          }
+            code,
+          },
         }),
       ),
     );
 
     await tx.permission.updateMany({
       data: {
-        deletedAt: new Date()
+        deletedAt: new Date(),
       },
       where: {
-        module: 'COMPANY'
-      }
+        module: 'COMPANY',
+      },
     });
 
     const superAdmin = await tx.role.upsert({
       create: {
         description: 'Full platform administration',
-        name: 'Super Admin'
+        name: 'Super Admin',
       },
       update: {
         deletedAt: null,
-        description: 'Full platform administration'
+        description: 'Full platform administration',
       },
       where: {
-        name: 'Super Admin'
-      }
+        name: 'Super Admin',
+      },
     });
 
     const admin = await tx.role.upsert({
       create: {
         description: 'Administration role for day-to-day management',
-        name: 'Admin'
+        name: 'Admin',
       },
       update: {
         deletedAt: null,
-        description: 'Administration role for day-to-day management'
+        description: 'Administration role for day-to-day management',
       },
       where: {
-        name: 'Admin'
-      }
+        name: 'Admin',
+      },
     });
 
     await tx.rolePermission.createMany({
       data: permissions.map((permission) => ({
         permissionId: permission.id,
-        roleId: superAdmin.id
+        roleId: superAdmin.id,
       })),
-      skipDuplicates: true
+      skipDuplicates: true,
     });
 
     await tx.rolePermission.createMany({
@@ -113,9 +149,9 @@ async function main() {
         .filter((permission) => !permission.code.endsWith('_DELETE'))
         .map((permission) => ({
           permissionId: permission.id,
-          roleId: admin.id
+          roleId: admin.id,
         })),
-      skipDuplicates: true
+      skipDuplicates: true,
     });
 
     const hospital = await tx.hospital.upsert({
@@ -127,7 +163,7 @@ async function main() {
         hospitalCode: 'MAX',
         hospitalName: 'Max Healthcare',
         isActive: true,
-        state: 'Delhi'
+        state: 'Delhi',
       },
       update: {
         address: 'Saket, New Delhi',
@@ -137,46 +173,46 @@ async function main() {
         gstApplicable: true,
         hospitalName: 'Max Healthcare',
         isActive: true,
-        state: 'Delhi'
+        state: 'Delhi',
       },
       where: {
-        hospitalCode: 'MAX'
-      }
+        hospitalCode: 'MAX',
+      },
     });
 
     const existingLocation = await tx.location.findFirst({
       where: {
         deletedAt: null,
         hospitalId: hospital.id,
-        locationName: 'Max Saket'
-      }
+        locationName: 'Max Saket',
+      },
     });
 
     if (existingLocation) {
       await tx.location.update({
-          data: {
-            address: 'Saket campus',
-            area: 'Main Block',
-            building: 'Hospital Tower',
-            floor: 'Ground Floor',
-            isActive: true
-          },
-          where: {
-            id: existingLocation.id
-          }
-        });
+        data: {
+          address: 'Saket campus',
+          area: 'Main Block',
+          building: 'Hospital Tower',
+          floor: 'Ground Floor',
+          isActive: true,
+        },
+        where: {
+          id: existingLocation.id,
+        },
+      });
     } else {
       await tx.location.create({
-          data: {
-            address: 'Saket campus',
-            area: 'Main Block',
-            building: 'Hospital Tower',
-            floor: 'Ground Floor',
-            hospitalId: hospital.id,
-            isActive: true,
-            locationName: 'Max Saket'
-          }
-        });
+        data: {
+          address: 'Saket campus',
+          area: 'Main Block',
+          building: 'Hospital Tower',
+          floor: 'Ground Floor',
+          hospitalId: hospital.id,
+          isActive: true,
+          locationName: 'Max Saket',
+        },
+      });
     }
 
     const store = await tx.store.upsert({
@@ -186,21 +222,21 @@ async function main() {
         isActive: true,
         storeCode: 'FNB-STORE-01',
         storeName: 'Main F&B Store',
-        storeType: 'F&B'
+        storeType: 'F&B',
       },
       update: {
         address: 'Ground floor service corridor',
         deletedAt: null,
         isActive: true,
         storeName: 'Main F&B Store',
-        storeType: 'F&B'
+        storeType: 'F&B',
       },
       where: {
         hospitalId_storeCode: {
           hospitalId: hospital.id,
-          storeCode: 'FNB-STORE-01'
-        }
-      }
+          storeCode: 'FNB-STORE-01',
+        },
+      },
     });
 
     const kitchen = await tx.kitchen.upsert({
@@ -210,21 +246,21 @@ async function main() {
         isActive: true,
         kitchenCode: 'MAIN-KITCHEN',
         kitchenName: 'Main Kitchen',
-        openingTime: '06:00'
+        openingTime: '06:00',
       },
       update: {
         closingTime: '22:00',
         deletedAt: null,
         isActive: true,
         kitchenName: 'Main Kitchen',
-        openingTime: '06:00'
+        openingTime: '06:00',
       },
       where: {
         hospitalId_kitchenCode: {
           hospitalId: hospital.id,
-          kitchenCode: 'MAIN-KITCHEN'
-        }
-      }
+          kitchenCode: 'MAIN-KITCHEN',
+        },
+      },
     });
 
     const restaurant = await tx.restaurant.upsert({
@@ -240,7 +276,7 @@ async function main() {
         openingTime: '07:00',
         restaurantCode: 'CAFETERIA',
         restaurantName: 'Main Cafeteria',
-        storeId: store.id
+        storeId: store.id,
       },
       update: {
         address: 'Ground floor cafeteria',
@@ -253,14 +289,14 @@ async function main() {
         onlineOrderingEnabled: true,
         openingTime: '07:00',
         restaurantName: 'Main Cafeteria',
-        storeId: store.id
+        storeId: store.id,
       },
       where: {
         hospitalId_restaurantCode: {
           hospitalId: hospital.id,
-          restaurantCode: 'CAFETERIA'
-        }
-      }
+          restaurantCode: 'CAFETERIA',
+        },
+      },
     });
 
     await tx.counter.upsert({
@@ -269,21 +305,45 @@ async function main() {
         counterName: 'Cafeteria Counter 1',
         hospitalId: hospital.id,
         isActive: true,
-        restaurantId: restaurant.id
+        restaurantId: restaurant.id,
       },
       update: {
         counterName: 'Cafeteria Counter 1',
         deletedAt: null,
         hospitalId: hospital.id,
-        isActive: true
+        isActive: true,
       },
       where: {
         restaurantId_counterCode: {
           counterCode: 'COUNTER-01',
-          restaurantId: restaurant.id
-        }
-      }
+          restaurantId: restaurant.id,
+        },
+      },
     });
+
+    await Promise.all(
+      defaultTimeSlots.map(([slotName, startTime, endTime, isAlwaysAvailable]) =>
+        tx.timeSlot.upsert({
+          create: {
+            endTime,
+            isActive: true,
+            isAlwaysAvailable,
+            slotName,
+            startTime,
+          },
+          update: {
+            deletedAt: null,
+            endTime,
+            isActive: true,
+            isAlwaysAvailable,
+            startTime,
+          },
+          where: {
+            slotName,
+          },
+        }),
+      ),
+    );
 
     const superAdminUser = await tx.user.upsert({
       create: {
@@ -292,7 +352,7 @@ async function main() {
         hospitalId: hospital.id,
         mobile: '9999999999',
         name: 'Super Admin',
-        status: UserStatus.ACTIVE
+        status: UserStatus.ACTIVE,
       },
       update: {
         deletedAt: null,
@@ -300,27 +360,27 @@ async function main() {
         hospitalId: hospital.id,
         mobile: '9999999999',
         name: 'Super Admin',
-        status: UserStatus.ACTIVE
+        status: UserStatus.ACTIVE,
       },
       where: {
-        employeeCode: 'SA001'
-      }
+        employeeCode: 'SA001',
+      },
     });
 
     await tx.userRole.upsert({
       create: {
         roleId: superAdmin.id,
-        userId: superAdminUser.id
+        userId: superAdminUser.id,
       },
       update: {
-        deletedAt: null
+        deletedAt: null,
       },
       where: {
         userId_roleId: {
           roleId: superAdmin.id,
-          userId: superAdminUser.id
-        }
-      }
+          userId: superAdminUser.id,
+        },
+      },
     });
   });
 }
