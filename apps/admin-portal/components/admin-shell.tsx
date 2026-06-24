@@ -4,7 +4,9 @@ import { Button } from '@aahar/ui';
 import {
   CalendarClock,
   ChefHat,
+  ClipboardList,
   CreditCard,
+  Boxes,
   Hospital,
   LayoutDashboard,
   LogOut,
@@ -37,6 +39,8 @@ const navigation = [
   { href: '/masters/store-items', icon: Store, label: 'Store Items' },
   { href: '/masters/kitchen-items', icon: ChefHat, label: 'Kitchen Items' },
   { href: '/masters/restaurant-menus', icon: Utensils, label: 'Restaurant Menus' },
+  { href: '/inventory/grns', icon: ClipboardList, label: 'GRNs' },
+  { href: '/inventory/store-stock', icon: Boxes, label: 'Store Stock' },
 ];
 
 function SidebarContent({ onNavigate }: Readonly<{ onNavigate?: () => void }>) {

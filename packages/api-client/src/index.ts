@@ -537,6 +537,191 @@ export interface RestaurantMenuListQuery extends ListQuery {
   timeSlotId?: string;
 }
 
+export type GrnStatus =
+  | 'ACCEPTED'
+  | 'CANCELLED'
+  | 'DRAFT'
+  | 'PARTIALLY_ACCEPTED'
+  | 'POSTED_TO_STOCK'
+  | 'REJECTED'
+  | 'UNDER_VERIFICATION';
+
+export type InventoryLocationType = 'COUNTER' | 'KITCHEN' | 'RESTAURANT' | 'STORE';
+export type StockReferenceType = 'GRN';
+export type StockTransactionType = 'GRN_IN';
+export type StockBalanceStatus = 'AVAILABLE' | 'EXPIRED' | 'NEAR_EXPIRY' | 'OUT_OF_STOCK';
+
+export interface GrnBatch {
+  acceptedQty: number;
+  batchNumber: string;
+  createdAt: string;
+  expiryDate: string;
+  grnLineId: string;
+  id: string;
+  itemId: string;
+  manufacturingDate: string | null;
+  receivedQty: number;
+  rejectedQty: number;
+  rejectionReason: string | null;
+  updatedAt: string;
+}
+
+export interface GrnLine {
+  acceptedQty: number;
+  batches: GrnBatch[];
+  createdAt: string;
+  grnId: string;
+  id: string;
+  item: ItemSummary;
+  itemId: string;
+  orderedQty: number | null;
+  receivedQty: number;
+  rejectedQty: number;
+  rejectionReason: string | null;
+  remarks: string | null;
+  updatedAt: string;
+}
+
+export interface Grn {
+  createdAt: string;
+  deletedAt: string | null;
+  grnNumber: string;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  invoiceNumber: string | null;
+  lines: GrnLine[];
+  poNumber: string | null;
+  receivedBy: string;
+  receivedDate: string;
+  remarks: string | null;
+  status: GrnStatus;
+  store: Pick<Store, 'hospitalId' | 'id' | 'isActive' | 'storeCode' | 'storeName'>;
+  storeId: string;
+  updatedAt: string;
+  vendorName: string | null;
+}
+
+export interface GrnBatchInput {
+  acceptedQty: number;
+  batchNumber: string;
+  expiryDate: string;
+  manufacturingDate?: string;
+  receivedQty: number;
+  rejectedQty: number;
+  rejectionReason?: string;
+}
+
+export interface GrnLineInput {
+  acceptedQty: number;
+  batches: GrnBatchInput[];
+  itemId: string;
+  orderedQty?: number;
+  receivedQty: number;
+  rejectedQty: number;
+  rejectionReason?: string;
+  remarks?: string;
+}
+
+export interface GrnInput {
+  hospitalId: string;
+  invoiceNumber?: string;
+  items: GrnLineInput[];
+  poNumber?: string;
+  receivedBy: string;
+  receivedDate: string;
+  remarks?: string;
+  storeId: string;
+  vendorName?: string;
+}
+
+export interface GrnListQuery extends ListQuery {
+  fromDate?: string;
+  hospitalId?: string;
+  status?: GrnStatus;
+  storeId?: string;
+  toDate?: string;
+}
+
+export interface StockLocationSummary {
+  code: string | null;
+  id: string;
+  name: string;
+  type: InventoryLocationType;
+}
+
+export interface StockBalance {
+  availableQty: number;
+  batchNumber: string | null;
+  createdAt: string;
+  deletedAt: string | null;
+  expiryDate: string | null;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  item: ItemSummary;
+  itemId: string;
+  itemType: ItemType;
+  lastUpdatedOn: string;
+  location: StockLocationSummary;
+  locationId: string;
+  locationType: InventoryLocationType;
+  reservedQty: number;
+  status: StockBalanceStatus;
+  updatedAt: string;
+}
+
+export interface StockLedger {
+  balanceAfter: number;
+  batchNumber: string | null;
+  businessDate: string;
+  createdAt: string;
+  deletedAt: string | null;
+  expiryDate: string | null;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  item: ItemSummary;
+  itemId: string;
+  itemType: ItemType;
+  location: StockLocationSummary;
+  locationId: string;
+  locationType: InventoryLocationType;
+  qtyIn: number;
+  qtyOut: number;
+  referenceId: string | null;
+  referenceType: StockReferenceType | null;
+  remarks: string | null;
+  transactionDateTime: string;
+  transactionType: StockTransactionType;
+  updatedAt: string;
+}
+
+export interface StockBalanceListQuery extends ListQuery {
+  batchNumber?: string;
+  expiryDate?: string;
+  hospitalId?: string;
+  itemId?: string;
+  itemType?: ItemType;
+  locationId?: string;
+  locationType?: InventoryLocationType;
+  status?: StockBalanceStatus;
+}
+
+export interface StockLedgerListQuery extends ListQuery {
+  batchNumber?: string;
+  businessDate?: string;
+  expiryDate?: string;
+  fromDate?: string;
+  hospitalId?: string;
+  itemId?: string;
+  itemType?: ItemType;
+  locationId?: string;
+  locationType?: InventoryLocationType;
+  toDate?: string;
+  transactionType?: StockTransactionType;
+}
+
 function appendQuery(path: string, query?: QueryParams): string {
   if (!query) {
     return path;
@@ -689,6 +874,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'POST',
       });
     },
+    createGrn(body: GrnInput) {
+      return client.request<ApiResponse<Grn>>('/grns', {
+        body,
+        method: 'POST',
+      });
+    },
     createHospital(body: HospitalInput) {
       return client.request<ApiResponse<Hospital>>('/hospitals', {
         body,
@@ -763,6 +954,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'DELETE',
       });
     },
+    deleteGrn(id: string) {
+      return client.request<ApiResponse<{ id: string }>>(`/grns/${id}`, { method: 'DELETE' });
+    },
     deleteHospital(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/hospitals/${id}`, { method: 'DELETE' });
     },
@@ -814,6 +1008,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
     getEmployee(id: string) {
       return client.request<ApiResponse<Employee>>(`/employees/${id}`);
     },
+    getGrn(id: string) {
+      return client.request<ApiResponse<Grn>>(`/grns/${id}`);
+    },
     getHospital(id: string) {
       return client.request<ApiResponse<Hospital>>(`/hospitals/${id}`);
     },
@@ -853,6 +1050,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
     listEmployees(query?: EmployeeListQuery) {
       return client.request<ApiResponse<ApiList<Employee>>>('/employees', { query });
     },
+    listGrns(query?: GrnListQuery) {
+      return client.request<ApiResponse<ApiList<Grn>>>('/grns', { query });
+    },
     listHospitals(query?: HospitalListQuery) {
       return client.request<ApiResponse<ApiList<Hospital>>>('/hospitals', { query });
     },
@@ -877,6 +1077,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
     listRestaurantMenus(query?: RestaurantMenuListQuery) {
       return client.request<ApiResponse<ApiList<RestaurantMenu>>>('/restaurant-menus', { query });
     },
+    listStockBalances(query?: StockBalanceListQuery) {
+      return client.request<ApiResponse<ApiList<StockBalance>>>('/stock-balances', { query });
+    },
+    listStockLedgers(query?: StockLedgerListQuery) {
+      return client.request<ApiResponse<ApiList<StockLedger>>>('/stock-ledgers', { query });
+    },
     listStoreItems(query?: StoreItemListQuery) {
       return client.request<ApiResponse<ApiList<StoreItem>>>('/store-items', { query });
     },
@@ -894,6 +1100,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     updateEmployee(id: string, body: Partial<EmployeeInput>) {
       return client.request<ApiResponse<Employee>>(`/employees/${id}`, {
+        body,
+        method: 'PUT',
+      });
+    },
+    updateGrn(id: string, body: Partial<GrnInput>) {
+      return client.request<ApiResponse<Grn>>(`/grns/${id}`, {
         body,
         method: 'PUT',
       });
@@ -962,6 +1174,16 @@ export function createOrganizationApi(options: ApiClientOptions) {
       return client.request<ApiResponse<TimeSlot>>(`/time-slots/${id}`, {
         body,
         method: 'PUT',
+      });
+    },
+    cancelGrn(id: string) {
+      return client.request<ApiResponse<Grn>>(`/grns/${id}/cancel`, {
+        method: 'PATCH',
+      });
+    },
+    postGrnToStock(id: string) {
+      return client.request<ApiResponse<Grn>>(`/grns/${id}/post-to-stock`, {
+        method: 'PATCH',
       });
     },
     validateEmployee(employeeCode: string) {

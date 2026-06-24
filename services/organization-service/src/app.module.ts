@@ -17,6 +17,7 @@ import { PassportModule } from '@nestjs/passport';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { CountersModule } from './counters/counters.module';
 import { EmployeesModule } from './employees/employees.module';
+import { GrnsModule } from './grns/grns.module';
 import { HealthController } from './health.controller';
 import { HospitalsModule } from './hospitals/hospitals.module';
 import { ItemCategoriesModule } from './item-categories/item-categories.module';
@@ -26,6 +27,7 @@ import { KitchensModule } from './kitchens/kitchens.module';
 import { LocationsModule } from './locations/locations.module';
 import { RestaurantMenusModule } from './restaurant-menus/restaurant-menus.module';
 import { RestaurantsModule } from './restaurants/restaurants.module';
+import { StockModule } from './stock/stock.module';
 import { StoreItemsModule } from './store-items/store-items.module';
 import { StoresModule } from './stores/stores.module';
 import { TimeSlotsModule } from './time-slots/time-slots.module';
@@ -55,6 +57,7 @@ import { TimeSlotsModule } from './time-slots/time-slots.module';
     }),
     CountersModule,
     EmployeesModule,
+    GrnsModule,
     HospitalsModule,
     ItemCategoriesModule,
     ItemsModule,
@@ -63,6 +66,7 @@ import { TimeSlotsModule } from './time-slots/time-slots.module';
     LocationsModule,
     RestaurantMenusModule,
     RestaurantsModule,
+    StockModule,
     StoreItemsModule,
     StoresModule,
     TimeSlotsModule,

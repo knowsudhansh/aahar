@@ -64,6 +64,12 @@ const defaultPermissions = [
   ['RESTAURANT_MENU_VIEW', 'RESTAURANT_MENU', 'VIEW', 'View restaurant menu mappings'],
   ['RESTAURANT_MENU_UPDATE', 'RESTAURANT_MENU', 'UPDATE', 'Update restaurant menu mappings'],
   ['RESTAURANT_MENU_DELETE', 'RESTAURANT_MENU', 'DELETE', 'Disable restaurant menu mappings'],
+  ['GRN_CREATE', 'GRN', 'CREATE', 'Create goods receipt notes'],
+  ['GRN_VIEW', 'GRN', 'VIEW', 'View goods receipt notes'],
+  ['GRN_UPDATE', 'GRN', 'UPDATE', 'Update goods receipt notes'],
+  ['GRN_DELETE', 'GRN', 'DELETE', 'Delete draft goods receipt notes'],
+  ['GRN_POST', 'GRN', 'POST', 'Post goods receipt notes to stock'],
+  ['STOCK_VIEW', 'STOCK', 'VIEW', 'View stock ledger and balances'],
   ['AUDIT_LOG_VIEW', 'AUDIT_LOG', 'VIEW', 'View audit logs'],
 ] as const;
 

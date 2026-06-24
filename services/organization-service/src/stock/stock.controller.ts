@@ -1,0 +1,36 @@
+import { Permissions } from '@aahar/auth';
+import { Controller, Get, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ListStockBalancesQueryDto } from './dto/list-stock-balances-query.dto';
+import { ListStockLedgersQueryDto } from './dto/list-stock-ledgers-query.dto';
+import { StockService } from './stock.service';
+
+@ApiBearerAuth('access-token')
+@ApiTags('stock-ledgers')
+@Controller('stock-ledgers')
+export class StockLedgersController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('STOCK_VIEW')
+  @ApiOperation({ summary: 'Get stock ledger entries' })
+  @ApiOkResponse({ description: 'Stock ledger entries returned successfully.' })
+  async list(@Query() query: ListStockLedgersQueryDto) {
+    return { data: await this.stock.listLedgers(query), message: 'Success', success: true };
+  }
+}
+
+@ApiBearerAuth('access-token')
+@ApiTags('stock-balances')
+@Controller('stock-balances')
+export class StockBalancesController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('STOCK_VIEW')
+  @ApiOperation({ summary: 'Get current stock balances' })
+  @ApiOkResponse({ description: 'Stock balances returned successfully.' })
+  async list(@Query() query: ListStockBalancesQueryDto) {
+    return { data: await this.stock.listBalances(query), message: 'Success', success: true };
+  }
+}
