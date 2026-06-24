@@ -2,9 +2,18 @@
 
 import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, PackageCheck, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import {
+  ArrowRightLeft,
+  ClipboardCheck,
+  Loader2,
+  PackageCheck,
+  Plus,
+  RefreshCw,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type {
@@ -12,11 +21,16 @@ import type {
   GrnInput,
   GrnStatus,
   Hospital,
+  Restaurant,
   SortOrder,
   StockBalance,
   StockBalanceStatus,
   Store,
   StoreItem,
+  Transfer,
+  TransferAcknowledgementLineInput,
+  TransferInput,
+  TransferStatus,
 } from '@aahar/api-client';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
@@ -34,6 +48,12 @@ const grnStatuses: GrnStatus[] = [
   'REJECTED',
 ];
 const stockStatuses: StockBalanceStatus[] = ['AVAILABLE', 'NEAR_EXPIRY', 'EXPIRED', 'OUT_OF_STOCK'];
+const transferStatuses: TransferStatus[] = [
+  'DRAFT',
+  'PENDING_ACKNOWLEDGEMENT',
+  'ACKNOWLEDGED',
+  'CANCELLED',
+];
 
 const headerSchema = z.object({
   hospitalId: z.string().uuid('Select a hospital.'),
@@ -161,6 +181,14 @@ function formatDateOnly(value: string | null | undefined): string {
   return new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium' }).format(new Date(value));
 }
 
+function toDateOnlyValue(value: string | null | undefined): string {
+  if (!value) {
+    return '';
+  }
+
+  return value.slice(0, 10);
+}
+
 function formatEnum(value: string): string {
   return value
     .toLowerCase()
@@ -199,12 +227,17 @@ function optionalValue(value: string): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function statusVariant(status: GrnStatus | StockBalanceStatus): 'danger' | 'neutral' | 'success' {
-  if (status === 'POSTED_TO_STOCK' || status === 'AVAILABLE') {
+function statusVariant(status: string): 'danger' | 'neutral' | 'success' {
+  if (status === 'POSTED_TO_STOCK' || status === 'AVAILABLE' || status === 'ACKNOWLEDGED') {
     return 'success';
   }
 
-  if (status === 'CANCELLED' || status === 'EXPIRED' || status === 'OUT_OF_STOCK') {
+  if (
+    status === 'CANCELLED' ||
+    status === 'EXPIRED' ||
+    status === 'OUT_OF_STOCK' ||
+    status === 'REJECTED_FULL'
+  ) {
     return 'danger';
   }
 
@@ -1369,6 +1402,1209 @@ export function StoreStockPageClient() {
                   isError={stockQuery.isError}
                   isLoading={stockQuery.isLoading}
                   label="store stock"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+interface TransferHeaderFormValues {
+  hospitalId: string;
+  remarks: string;
+  restaurantId: string;
+  storeId: string;
+  transferDate: string;
+}
+
+interface TransferLineDraft {
+  clientId: string;
+  remarks: string;
+  sentQty: string;
+  stockBalanceId: string;
+}
+
+interface AcknowledgementLineDraft {
+  acceptedQty: string;
+  rejectedQty: string;
+  rejectionReason: string;
+  remarks: string;
+  transferLineId: string;
+}
+
+const transferHeaderSchema = z.object({
+  hospitalId: z.string().uuid('Select a hospital.'),
+  remarks: z.string().trim(),
+  restaurantId: z.string().uuid('Select a restaurant.'),
+  storeId: z.string().uuid('Select a store.'),
+  transferDate: z.string().trim().min(1, 'Transfer date is required.'),
+});
+
+const transferLinesSchema = z
+  .array(
+    z.object({
+      remarks: z.string().trim(),
+      sentQty: z.coerce.number().min(0.001, 'Transfer quantity must be greater than zero.'),
+      stockBalanceId: z.string().uuid('Select store stock.'),
+    }),
+  )
+  .min(1, 'Add at least one transfer line.');
+
+function emptyTransferLine(): TransferLineDraft {
+  return {
+    clientId: clientId('transfer-line'),
+    remarks: '',
+    sentQty: '',
+    stockBalanceId: '',
+  };
+}
+
+function defaultTransferDate(): string {
+  return defaultReceivedDate();
+}
+
+function useRestaurants(hospitalId?: string) {
+  return useQuery({
+    enabled: Boolean(hospitalId),
+    queryFn: async () => {
+      const response = await organizationApi.listRestaurants({
+        hospitalId,
+        isActive: true,
+        limit: 100,
+        sortBy: 'restaurantName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['inventory-restaurants', hospitalId],
+  });
+}
+
+function useAllStores() {
+  return useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listStores({
+        isActive: true,
+        limit: 100,
+        sortBy: 'storeName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['inventory-all-stores'],
+  });
+}
+
+function useAllRestaurants() {
+  return useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listRestaurants({
+        isActive: true,
+        limit: 100,
+        sortBy: 'restaurantName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['inventory-all-restaurants'],
+  });
+}
+
+function useStoreStock(storeId?: string) {
+  return useQuery({
+    enabled: Boolean(storeId),
+    queryFn: async () => {
+      const response = await organizationApi.listStockBalances({
+        itemType: 'MRP',
+        limit: 100,
+        locationId: storeId,
+        locationType: 'STORE',
+        sortBy: 'expiryDate',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items.filter((stock) => stock.availableQty > 0);
+    },
+    queryKey: ['transfer-store-stock', storeId],
+  });
+}
+
+function RestaurantSelect({
+  disabled,
+  onChange,
+  restaurants,
+  value,
+}: Readonly<{
+  disabled?: boolean;
+  onChange: (value: string) => void;
+  restaurants: Restaurant[];
+  value: string;
+}>) {
+  return (
+    <Select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
+      <option value="">Select restaurant</option>
+      {restaurants.map((restaurant) => (
+        <option key={restaurant.id} value={restaurant.id}>
+          {restaurant.restaurantName}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+function stockOptionLabel(stock: StockBalance): string {
+  return `${stock.item.itemName} (${stock.item.itemCode}) - ${stock.batchNumber ?? 'No batch'} - ${formatDateOnly(stock.expiryDate)} - ${stock.availableQty.toFixed(3)} available`;
+}
+
+export function TransfersPageClient() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [storeFilter, setStoreFilter] = useState('');
+  const [restaurantFilter, setRestaurantFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | TransferStatus>('');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [partialTransfer, setPartialTransfer] = useState<Transfer | null>(null);
+  const [partialRemarks, setPartialRemarks] = useState('');
+  const [partialLines, setPartialLines] = useState<AcknowledgementLineDraft[]>([]);
+  const [partialError, setPartialError] = useState('');
+  const hospitalsQuery = useHospitals();
+  const storesQuery = useStores(hospitalFilter);
+  const restaurantsQuery = useRestaurants(hospitalFilter);
+  const allStoresQuery = useAllStores();
+  const allRestaurantsQuery = useAllRestaurants();
+  const storeMap = useMemo(
+    () => new Map((allStoresQuery.data ?? []).map((store) => [store.id, store])),
+    [allStoresQuery.data],
+  );
+  const restaurantMap = useMemo(
+    () =>
+      new Map(
+        (allRestaurantsQuery.data ?? []).map((restaurant) => [restaurant.id, restaurant]),
+      ),
+    [allRestaurantsQuery.data],
+  );
+
+  const transfersQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listTransfers({
+        destinationId: restaurantFilter,
+        destinationType: 'RESTAURANT',
+        hospitalId: hospitalFilter,
+        limit: listLimit,
+        page,
+        search,
+        sortBy: 'createdAt',
+        sortOrder,
+        sourceId: storeFilter,
+        sourceType: 'STORE',
+        status: statusFilter || undefined,
+      });
+
+      return response.data;
+    },
+    queryKey: [
+      'transfers',
+      page,
+      search,
+      hospitalFilter,
+      storeFilter,
+      restaurantFilter,
+      statusFilter,
+      sortOrder,
+    ],
+  });
+
+  const acknowledgeMutation = useMutation({
+    mutationFn: (body: {
+      items: TransferAcknowledgementLineInput[];
+      remarks?: string;
+      transferId: string;
+    }) => organizationApi.createTransferAcknowledgement(body),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Transfer was not acknowledged',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      setPartialTransfer(null);
+      setPartialRemarks('');
+      setPartialLines([]);
+      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      void queryClient.invalidateQueries({ queryKey: ['transfer-acknowledgements'] });
+      void queryClient.invalidateQueries({ queryKey: ['restaurant-stock'] });
+      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      showToast({ title: 'Transfer acknowledged', variant: 'success' });
+    },
+  });
+
+  const dispatchMutation = useMutation({
+    mutationFn: (id: string) => organizationApi.dispatchTransfer(id),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Transfer was not dispatched',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      showToast({ title: 'Transfer dispatched', variant: 'success' });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => organizationApi.cancelTransfer(id),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Transfer was not cancelled',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      showToast({ title: 'Transfer cancelled', variant: 'success' });
+    },
+  });
+
+  const transfers = transfersQuery.data?.items ?? [];
+  const meta = transfersQuery.data?.meta ?? { limit: listLimit, page, total: 0, totalPages: 1 };
+
+  function acknowledgementItems(
+    transfer: Transfer,
+    mode: 'ACCEPT_FULL' | 'REJECT_FULL',
+  ): TransferAcknowledgementLineInput[] {
+    return transfer.lines.map((line) => ({
+      acceptedQty: mode === 'ACCEPT_FULL' ? line.sentQty : 0,
+      batchNumber: line.batchNumber,
+      expiryDate: line.expiryDate,
+      itemId: line.itemId,
+      rejectedQty: mode === 'REJECT_FULL' ? line.sentQty : 0,
+      rejectionReason: mode === 'REJECT_FULL' ? 'Rejected at restaurant' : undefined,
+      sentQty: line.sentQty,
+      transferLineId: line.id,
+    }));
+  }
+
+  function startPartial(transfer: Transfer) {
+    setPartialTransfer(transfer);
+    setPartialRemarks('');
+    setPartialError('');
+    setPartialLines(
+      transfer.lines.map((line) => ({
+        acceptedQty: String(line.sentQty),
+        rejectedQty: '0',
+        rejectionReason: '',
+        remarks: '',
+        transferLineId: line.id,
+      })),
+    );
+  }
+
+  function updatePartialLine(index: number, patch: Partial<AcknowledgementLineDraft>) {
+    setPartialLines((current) =>
+      current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)),
+    );
+  }
+
+  function submitPartial() {
+    if (!partialTransfer) {
+      return;
+    }
+
+    const transferLineMap = new Map(partialTransfer.lines.map((line) => [line.id, line]));
+    const items: TransferAcknowledgementLineInput[] = [];
+
+    for (const line of partialLines) {
+      const transferLine = transferLineMap.get(line.transferLineId);
+      const acceptedQty = Number(line.acceptedQty || 0);
+      const rejectedQty = Number(line.rejectedQty || 0);
+
+      if (!transferLine) {
+        setPartialError('Unable to find transfer line.');
+        return;
+      }
+
+      if (Math.abs(acceptedQty + rejectedQty - transferLine.sentQty) >= 0.0005) {
+        setPartialError('Accepted plus rejected quantity must equal sent quantity.');
+        return;
+      }
+
+      if (rejectedQty > 0 && !line.rejectionReason.trim()) {
+        setPartialError('Rejection reason is required for rejected quantity.');
+        return;
+      }
+
+      items.push({
+        acceptedQty,
+        batchNumber: transferLine.batchNumber,
+        expiryDate: transferLine.expiryDate,
+        itemId: transferLine.itemId,
+        rejectedQty,
+        rejectionReason: optionalValue(line.rejectionReason),
+        remarks: optionalValue(line.remarks),
+        sentQty: transferLine.sentQty,
+        transferLineId: transferLine.id,
+      });
+    }
+
+    acknowledgeMutation.mutate({
+      items,
+      remarks: optionalValue(partialRemarks),
+      transferId: partialTransfer.id,
+    });
+  }
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        action={
+          <Button onClick={() => router.push('/inventory/transfers/new')} type="button">
+            <Plus className="h-4 w-4" />
+            New Transfer
+          </Button>
+        }
+        subtitle="Move MRP stock from store to restaurant with acknowledgement."
+        title="Transfers"
+      />
+      <Panel>
+        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_180px_130px_auto]">
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <HospitalSelect
+            hospitals={hospitalsQuery.data ?? []}
+            onChange={(value) => {
+              setHospitalFilter(value);
+              setStoreFilter('');
+              setRestaurantFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          />
+          <StoreSelect
+            disabled={!hospitalFilter}
+            onChange={(value) => {
+              setStoreFilter(value);
+              setPage(1);
+            }}
+            stores={storesQuery.data ?? []}
+            value={storeFilter}
+          />
+          <RestaurantSelect
+            disabled={!hospitalFilter}
+            onChange={(value) => {
+              setRestaurantFilter(value);
+              setPage(1);
+            }}
+            restaurants={restaurantsQuery.data ?? []}
+            value={restaurantFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setStatusFilter(event.target.value as '' | TransferStatus);
+              setPage(1);
+            }}
+            value={statusFilter}
+          >
+            <option value="">All statuses</option>
+            {transferStatuses.map((status) => (
+              <option key={status} value={status}>
+                {formatEnum(status)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setSortOrder(event.target.value as SortOrder);
+              setPage(1);
+            }}
+            value={sortOrder}
+          >
+            <option value="desc">Newest</option>
+            <option value="asc">Oldest</option>
+          </Select>
+          <Button onClick={() => void transfersQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[13%] px-4 py-3">Transfer</th>
+                <th className="w-[15%] px-4 py-3">Store</th>
+                <th className="w-[15%] px-4 py-3">Restaurant</th>
+                <th className="w-[14%] px-4 py-3">Transfer Date</th>
+                <th className="w-[12%] px-4 py-3">Status</th>
+                <th className="w-[9%] px-4 py-3">Lines</th>
+                <th className="w-[22%] px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {transfers.length > 0 ? (
+                transfers.map((transfer) => (
+                  <tr className="hover:bg-slate-50" key={transfer.id}>
+                    <td className="px-4 py-4">
+                      <p className="font-semibold text-slate-950">{transfer.transferNumber}</p>
+                      <p className="text-xs text-slate-500">{transfer.hospital.hospitalName}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">
+                        {storeMap.get(transfer.sourceId)?.storeName ?? transfer.sourceId}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {storeMap.get(transfer.sourceId)?.storeCode ?? 'Store'}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">
+                        {restaurantMap.get(transfer.destinationId)?.restaurantName ??
+                          transfer.destinationId}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {restaurantMap.get(transfer.destinationId)?.restaurantCode ??
+                          'Restaurant'}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {formatDate(transfer.transferDate)}
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge variant={statusVariant(transfer.status)}>
+                        {formatEnum(transfer.status)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{transfer.lines.length}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          disabled={transfer.status !== 'DRAFT' || dispatchMutation.isPending}
+                          onClick={() => dispatchMutation.mutate(transfer.id)}
+                          size="sm"
+                          type="button"
+                        >
+                          Dispatch
+                        </Button>
+                        <Button
+                          disabled={
+                            transfer.status !== 'PENDING_ACKNOWLEDGEMENT' ||
+                            acknowledgeMutation.isPending
+                          }
+                          onClick={() =>
+                            acknowledgeMutation.mutate({
+                              items: acknowledgementItems(transfer, 'ACCEPT_FULL'),
+                              transferId: transfer.id,
+                            })
+                          }
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Accept Full
+                        </Button>
+                        <Button
+                          disabled={
+                            transfer.status !== 'PENDING_ACKNOWLEDGEMENT' ||
+                            acknowledgeMutation.isPending
+                          }
+                          onClick={() => startPartial(transfer)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Partial
+                        </Button>
+                        <Button
+                          className="border-red-200 text-red-700 hover:bg-red-50"
+                          disabled={
+                            transfer.status !== 'PENDING_ACKNOWLEDGEMENT' ||
+                            acknowledgeMutation.isPending
+                          }
+                          onClick={() =>
+                            acknowledgeMutation.mutate({
+                              items: acknowledgementItems(transfer, 'REJECT_FULL'),
+                              transferId: transfer.id,
+                            })
+                          }
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Reject Full
+                        </Button>
+                        <Button
+                          disabled={transfer.status !== 'DRAFT' || cancelMutation.isPending}
+                          onClick={() => cancelMutation.mutate(transfer.id)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={7}
+                  error={transfersQuery.error}
+                  isError={transfersQuery.isError}
+                  isLoading={transfersQuery.isLoading}
+                  label="transfers"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+
+      {partialTransfer ? (
+        <Panel className="p-5">
+          <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold tracking-normal text-slate-950">
+                Accept Partial - {partialTransfer.transferNumber}
+              </h2>
+              <p className="text-sm text-slate-500">
+                Accepted plus rejected quantity must equal sent quantity for each line.
+              </p>
+            </div>
+            <Button onClick={() => setPartialTransfer(null)} type="button" variant="outline">
+              Close
+            </Button>
+          </div>
+          <div className="space-y-3">
+            {partialTransfer.lines.map((line, index) => (
+              <div
+                className="grid gap-3 rounded-lg border bg-slate-50 p-3 lg:grid-cols-[1fr_110px_130px_130px_1fr]"
+                key={line.id}
+              >
+                <div>
+                  <p className="font-medium text-slate-950">{line.item.itemName}</p>
+                  <p className="text-xs text-slate-500">
+                    {line.batchNumber} - {formatDateOnly(line.expiryDate)} - Sent{' '}
+                    {line.sentQty.toFixed(3)}
+                  </p>
+                </div>
+                <Input disabled value={line.sentQty.toFixed(3)} />
+                <Input
+                  min="0"
+                  onChange={(event) =>
+                    updatePartialLine(index, { acceptedQty: event.target.value })
+                  }
+                  placeholder="Accepted"
+                  type="number"
+                  value={partialLines[index]?.acceptedQty ?? ''}
+                />
+                <Input
+                  min="0"
+                  onChange={(event) =>
+                    updatePartialLine(index, { rejectedQty: event.target.value })
+                  }
+                  placeholder="Rejected"
+                  type="number"
+                  value={partialLines[index]?.rejectedQty ?? ''}
+                />
+                <Input
+                  onChange={(event) =>
+                    updatePartialLine(index, { rejectionReason: event.target.value })
+                  }
+                  placeholder="Rejection reason"
+                  value={partialLines[index]?.rejectionReason ?? ''}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4">
+            <Field label="Remarks" name="partialRemarks">
+              <Input
+                onChange={(event) => setPartialRemarks(event.target.value)}
+                placeholder="Optional"
+                value={partialRemarks}
+              />
+            </Field>
+          </div>
+          {partialError ? (
+            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+              {partialError}
+            </div>
+          ) : null}
+          <div className="mt-5 flex justify-end">
+            <Button
+              disabled={acknowledgeMutation.isPending}
+              onClick={submitPartial}
+              type="button"
+            >
+              {acknowledgeMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ClipboardCheck className="h-4 w-4" />
+              )}
+              Submit Acknowledgement
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
+    </section>
+  );
+}
+
+export function CreateTransferPageClient() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [lines, setLines] = useState<TransferLineDraft[]>([emptyTransferLine()]);
+  const [formError, setFormError] = useState('');
+  const [createdTransfer, setCreatedTransfer] = useState<Transfer | null>(null);
+  const form = useForm<TransferHeaderFormValues>({
+    defaultValues: {
+      hospitalId: '',
+      remarks: '',
+      restaurantId: '',
+      storeId: '',
+      transferDate: defaultTransferDate(),
+    },
+  });
+  const selectedHospitalId = form.watch('hospitalId');
+  const selectedStoreId = form.watch('storeId');
+  const selectedRestaurantId = form.watch('restaurantId');
+  const hospitalsQuery = useHospitals();
+  const storesQuery = useStores(selectedHospitalId);
+  const restaurantsQuery = useRestaurants(selectedHospitalId);
+  const stockQuery = useStoreStock(selectedStoreId);
+  const stockOptions = stockQuery.data ?? [];
+  const stockMap = useMemo(
+    () => new Map(stockOptions.map((stock) => [stock.id, stock])),
+    [stockOptions],
+  );
+  const isReadOnly = createdTransfer?.status !== undefined && createdTransfer.status !== 'DRAFT';
+
+  const saveMutation = useMutation({
+    mutationFn: (body: TransferInput) => organizationApi.createTransfer(body),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Transfer was not saved',
+        variant: 'error',
+      });
+    },
+    onSuccess(response) {
+      setCreatedTransfer(response.data);
+      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      showToast({
+        description: response.data.transferNumber,
+        title: 'Transfer saved',
+        variant: 'success',
+      });
+    },
+  });
+
+  const dispatchMutation = useMutation({
+    mutationFn: (id: string) => organizationApi.dispatchTransfer(id),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Transfer was not dispatched',
+        variant: 'error',
+      });
+    },
+    onSuccess(response) {
+      setCreatedTransfer(response.data);
+      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      showToast({ title: 'Transfer dispatched', variant: 'success' });
+    },
+  });
+
+  function resetCreated() {
+    setCreatedTransfer(null);
+  }
+
+  function addLine() {
+    setLines((current) => [...current, emptyTransferLine()]);
+  }
+
+  function removeLine(index: number) {
+    setLines((current) => current.filter((_, lineIndex) => lineIndex !== index));
+    resetCreated();
+  }
+
+  function updateLine(index: number, patch: Partial<TransferLineDraft>) {
+    setLines((current) =>
+      current.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line)),
+    );
+    resetCreated();
+  }
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setFormError('');
+
+    const header = transferHeaderSchema.safeParse(form.getValues());
+    const parsedLines = transferLinesSchema.safeParse(lines);
+
+    if (!header.success) {
+      const issue = header.error.issues[0];
+      const fieldName = (issue?.path[0] ?? 'hospitalId') as keyof TransferHeaderFormValues;
+      const message = issue?.message ?? 'Check transfer header.';
+      form.setError(fieldName, {
+        message,
+      });
+      setFormError(message);
+      return;
+    }
+
+    if (!parsedLines.success) {
+      setFormError(parsedLines.error.issues[0]?.message ?? 'Check transfer lines.');
+      return;
+    }
+
+    const totals = new Map<string, number>();
+
+    for (const line of lines) {
+      const stock = stockMap.get(line.stockBalanceId);
+      const sentQty = Number(line.sentQty || 0);
+
+      if (!stock) {
+        setFormError('Select valid store stock for every line.');
+        return;
+      }
+
+      totals.set(stock.id, (totals.get(stock.id) ?? 0) + sentQty);
+    }
+
+    for (const [stockId, requestedQty] of totals.entries()) {
+      const stock = stockMap.get(stockId);
+
+      if (!stock || requestedQty > stock.availableQty) {
+        setFormError('Transfer quantity cannot exceed available store quantity.');
+        return;
+      }
+    }
+
+    const payload: TransferInput = {
+      destinationId: header.data.restaurantId,
+      destinationType: 'RESTAURANT',
+      hospitalId: header.data.hospitalId,
+      items: lines.map((line) => {
+        const stock = stockMap.get(line.stockBalanceId);
+
+        if (!stock) {
+          throw new Error('Invalid stock selection');
+        }
+
+        return {
+          batchNumber: stock.batchNumber ?? '',
+          expiryDate: toDateOnlyValue(stock.expiryDate),
+          itemId: stock.itemId,
+          remarks: optionalValue(line.remarks),
+          sentQty: Number(line.sentQty),
+        };
+      }),
+      remarks: optionalValue(header.data.remarks),
+      sourceId: header.data.storeId,
+      sourceType: 'STORE',
+      transferDate: new Date(header.data.transferDate).toISOString(),
+    };
+
+    saveMutation.mutate(payload);
+  }
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        subtitle="Create a store to restaurant stock transfer from available MRP batches."
+        title="Create Transfer"
+      />
+
+      {createdTransfer ? (
+        <Panel className="flex flex-col gap-3 border-teal-200 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-teal-900">
+              Transfer {createdTransfer.transferNumber} is {formatEnum(createdTransfer.status)}
+            </p>
+            <p className="text-sm text-teal-800">
+              Dispatch when the stock physically leaves the store.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={createdTransfer.status !== 'DRAFT' || dispatchMutation.isPending}
+              onClick={() => dispatchMutation.mutate(createdTransfer.id)}
+              type="button"
+            >
+              {dispatchMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRightLeft className="h-4 w-4" />
+              )}
+              Dispatch
+            </Button>
+            <Button onClick={() => router.push('/inventory/transfers')} type="button" variant="outline">
+              View Transfers
+            </Button>
+          </div>
+        </Panel>
+      ) : null}
+
+      <Panel className="p-5">
+        <form
+          className="space-y-6"
+          onSubmit={(event) => {
+            void handleSubmit(event);
+          }}
+        >
+          <div>
+            <h2 className="text-lg font-semibold tracking-normal text-slate-950">
+              Transfer Header
+            </h2>
+            <p className="text-sm text-slate-500">
+              Select hospital, source store, and receiving restaurant.
+            </p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            <Field
+              error={form.formState.errors.hospitalId?.message}
+              label="Hospital"
+              name="hospitalId"
+            >
+              <HospitalSelect
+                hospitals={hospitalsQuery.data ?? []}
+                onChange={(value) => {
+                  form.setValue('hospitalId', value, { shouldValidate: true });
+                  form.setValue('storeId', '', { shouldValidate: true });
+                  form.setValue('restaurantId', '', { shouldValidate: true });
+                  setLines([emptyTransferLine()]);
+                  resetCreated();
+                }}
+                value={selectedHospitalId}
+              />
+            </Field>
+            <Field error={form.formState.errors.storeId?.message} label="Store" name="storeId">
+              <StoreSelect
+                disabled={!selectedHospitalId || isReadOnly}
+                onChange={(value) => {
+                  form.setValue('storeId', value, { shouldValidate: true });
+                  setLines([emptyTransferLine()]);
+                  resetCreated();
+                }}
+                stores={storesQuery.data ?? []}
+                value={selectedStoreId}
+              />
+            </Field>
+            <Field
+              error={form.formState.errors.restaurantId?.message}
+              label="Restaurant"
+              name="restaurantId"
+            >
+              <RestaurantSelect
+                disabled={!selectedHospitalId || isReadOnly}
+                onChange={(value) => {
+                  form.setValue('restaurantId', value, { shouldValidate: true });
+                  resetCreated();
+                }}
+                restaurants={restaurantsQuery.data ?? []}
+                value={selectedRestaurantId}
+              />
+            </Field>
+            <Field
+              error={form.formState.errors.transferDate?.message}
+              label="Transfer Date"
+              name="transferDate"
+            >
+              <Input
+                disabled={isReadOnly}
+                type="datetime-local"
+                {...form.register('transferDate')}
+              />
+            </Field>
+            <Field label="Remarks" name="remarks">
+              <Input disabled={isReadOnly} placeholder="Optional" {...form.register('remarks')} />
+            </Field>
+          </div>
+
+          <div className="rounded-lg border bg-slate-50/60 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold tracking-normal text-slate-950">
+                  Transfer Lines
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Pick available store stock by item, batch, and expiry.
+                </p>
+              </div>
+              <Button
+                disabled={!selectedStoreId || isReadOnly}
+                onClick={addLine}
+                type="button"
+                variant="outline"
+              >
+                <Plus className="h-4 w-4" />
+                Add Line
+              </Button>
+            </div>
+
+            {!selectedStoreId ? (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+                Select a hospital and store before adding transfer lines.
+              </div>
+            ) : null}
+
+            {selectedStoreId && stockOptions.length === 0 && !stockQuery.isLoading ? (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+                No available MRP store stock found for this store.
+              </div>
+            ) : null}
+
+            <div className="mt-5 space-y-4">
+              {lines.map((line, index) => {
+                const stock = stockMap.get(line.stockBalanceId);
+
+                return (
+                  <div
+                    className="grid gap-3 rounded-lg border bg-white p-4 lg:grid-cols-[minmax(0,1fr)_130px_130px_130px_1fr_auto]"
+                    key={line.clientId}
+                  >
+                    <Field label="Store Stock" name={`transfer-line-${line.clientId}-stock`}>
+                      <Select
+                        disabled={!selectedStoreId || isReadOnly}
+                        onChange={(event) =>
+                          updateLine(index, { stockBalanceId: event.target.value })
+                        }
+                        value={line.stockBalanceId}
+                      >
+                        <option value="">Select stock</option>
+                        {stockOptions.map((stockOption) => (
+                          <option key={stockOption.id} value={stockOption.id}>
+                            {stockOptionLabel(stockOption)}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                      <p className="text-slate-500">Batch</p>
+                      <p className="font-semibold text-slate-950">{stock?.batchNumber ?? '-'}</p>
+                    </div>
+                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                      <p className="text-slate-500">Expiry</p>
+                      <p className="font-semibold text-slate-950">
+                        {formatDateOnly(stock?.expiryDate)}
+                      </p>
+                    </div>
+                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                      <p className="text-slate-500">Available</p>
+                      <p className="font-semibold text-slate-950">
+                        {stock?.availableQty.toFixed(3) ?? '-'}
+                      </p>
+                    </div>
+                    <Field label="Transfer Qty" name={`transfer-line-${line.clientId}-qty`}>
+                      <Input
+                        disabled={isReadOnly}
+                        min="0"
+                        onChange={(event) => updateLine(index, { sentQty: event.target.value })}
+                        placeholder="Qty"
+                        type="number"
+                        value={line.sentQty}
+                      />
+                    </Field>
+                    <Button
+                      className="self-end border-red-200 text-red-700 hover:bg-red-50"
+                      disabled={lines.length === 1 || isReadOnly}
+                      onClick={() => removeLine(index)}
+                      type="button"
+                      variant="outline"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {formError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+              {formError}
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <Button
+              onClick={() => router.push('/inventory/transfers')}
+              type="button"
+              variant="outline"
+            >
+              Close
+            </Button>
+            <Button disabled={saveMutation.isPending || isReadOnly} type="submit">
+              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save Draft
+            </Button>
+          </div>
+        </form>
+      </Panel>
+    </section>
+  );
+}
+
+export function RestaurantStockPageClient() {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [restaurantFilter, setRestaurantFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'' | StockBalanceStatus>('');
+  const hospitalsQuery = useHospitals();
+  const restaurantsQuery = useRestaurants(hospitalFilter);
+
+  const stockQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listRestaurantStock({
+        hospitalId: hospitalFilter,
+        itemType: 'MRP',
+        limit: listLimit,
+        locationId: restaurantFilter,
+        page,
+        search,
+        sortBy: 'lastUpdatedOn',
+        sortOrder: 'desc',
+        status: statusFilter || undefined,
+      });
+
+      return response.data;
+    },
+    queryKey: ['restaurant-stock', page, search, hospitalFilter, restaurantFilter, statusFilter],
+  });
+
+  const items = stockQuery.data?.items ?? [];
+  const meta = stockQuery.data?.meta ?? { limit: listLimit, page, total: 0, totalPages: 1 };
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        subtitle="Current restaurant stock received from acknowledged transfers."
+        title="Restaurant Stock"
+      />
+      <Panel>
+        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto]">
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <HospitalSelect
+            hospitals={hospitalsQuery.data ?? []}
+            onChange={(value) => {
+              setHospitalFilter(value);
+              setRestaurantFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          />
+          <RestaurantSelect
+            disabled={!hospitalFilter}
+            onChange={(value) => {
+              setRestaurantFilter(value);
+              setPage(1);
+            }}
+            restaurants={restaurantsQuery.data ?? []}
+            value={restaurantFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setStatusFilter(event.target.value as '' | StockBalanceStatus);
+              setPage(1);
+            }}
+            value={statusFilter}
+          >
+            <option value="">All statuses</option>
+            {stockStatuses.map((status) => (
+              <option key={status} value={status}>
+                {formatEnum(status)}
+              </option>
+            ))}
+          </Select>
+          <Button onClick={() => void stockQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[20%] px-4 py-3">Restaurant</th>
+                <th className="w-[22%] px-4 py-3">Item</th>
+                <th className="w-[16%] px-4 py-3">Batch</th>
+                <th className="w-[16%] px-4 py-3">Expiry</th>
+                <th className="w-[14%] px-4 py-3">Available Qty</th>
+                <th className="w-[12%] px-4 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {items.length > 0 ? (
+                items.map((stock) => (
+                  <tr className="hover:bg-slate-50" key={stock.id}>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">{stock.location.name}</p>
+                      <p className="text-xs text-slate-500">{stock.location.code}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">{stock.item.itemName}</p>
+                      <p className="text-xs text-slate-500">{stock.item.itemCode}</p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{stock.batchNumber}</td>
+                    <td className="px-4 py-4 text-slate-600">{formatDateOnly(stock.expiryDate)}</td>
+                    <td className="px-4 py-4 font-semibold text-slate-950">
+                      {stock.availableQty.toFixed(3)}
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge variant={statusVariant(stock.status)}>
+                        {formatEnum(stock.status)}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={6}
+                  error={stockQuery.error}
+                  isError={stockQuery.isError}
+                  isLoading={stockQuery.isLoading}
+                  label="restaurant stock"
                 />
               )}
             </tbody>

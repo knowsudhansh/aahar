@@ -39,6 +39,19 @@ enum GrnStatus {
   CANCELLED
 }
 
+enum TransferStatus {
+  DRAFT
+  PENDING_ACKNOWLEDGEMENT
+  ACKNOWLEDGED
+  CANCELLED
+}
+
+enum TransferAcknowledgementStatus {
+  ACCEPTED_FULL
+  ACCEPTED_PARTIAL
+  REJECTED_FULL
+}
+
 enum InventoryLocationType {
   STORE
   KITCHEN
@@ -48,10 +61,15 @@ enum InventoryLocationType {
 
 enum StockTransactionType {
   GRN_IN
+  STORE_TO_RESTAURANT_OUT
+  RESTAURANT_RECEIVE_IN
+  TRANSFER_REJECTED_RETURN_IN
 }
 
 enum StockReferenceType {
   GRN
+  TRANSFER
+  TRANSFER_ACKNOWLEDGEMENT
 }
 
 model User {
@@ -168,17 +186,19 @@ model Hospital {
   updatedBy     String?   @map("updated_by") @db.Uuid
   deletedAt     DateTime? @map("deleted_at")
 
-  auditLogs       AuditLog[]
-  counters        Counter[]
-  grns            Grn[]
-  kitchens        Kitchen[]
-  locations       Location[]
-  restaurants     Restaurant[]
-  restaurantMenus RestaurantMenu[]
-  stockBalances   StockBalance[]
-  stockLedgers    StockLedger[]
-  stores          Store[]
-  users           User[]
+  auditLogs                AuditLog[]
+  counters                 Counter[]
+  grns                     Grn[]
+  kitchens                 Kitchen[]
+  locations                Location[]
+  restaurants              Restaurant[]
+  restaurantMenus          RestaurantMenu[]
+  stockBalances            StockBalance[]
+  stockLedgers             StockLedger[]
+  stores                   Store[]
+  transferAcknowledgements TransferAcknowledgement[]
+  transfers                Transfer[]
+  users                    User[]
 
   @@index([deletedAt])
   @@index([isActive])
@@ -380,14 +400,16 @@ model Item {
   updatedBy              String?   @map("updated_by") @db.Uuid
   deletedAt              DateTime? @map("deleted_at")
 
-  category        ItemCategory     @relation(fields: [categoryId], references: [id])
-  grnBatches      GrnBatch[]
-  grnLines        GrnLine[]
-  kitchenItems    KitchenItem[]
-  restaurantMenus RestaurantMenu[]
-  stockBalances   StockBalance[]
-  stockLedgers    StockLedger[]
-  storeItems      StoreItem[]
+  category                     ItemCategory                  @relation(fields: [categoryId], references: [id])
+  grnBatches                   GrnBatch[]
+  grnLines                     GrnLine[]
+  kitchenItems                 KitchenItem[]
+  restaurantMenus              RestaurantMenu[]
+  stockBalances                StockBalance[]
+  stockLedgers                 StockLedger[]
+  storeItems                   StoreItem[]
+  transferAcknowledgementLines TransferAcknowledgementLine[]
+  transferLines                TransferLine[]
 
   @@index([categoryId])
   @@index([deletedAt])
@@ -591,6 +613,122 @@ model GrnBatch {
   @@index([grnLineId])
   @@index([itemId])
   @@map("grn_batches")
+}
+
+model Transfer {
+  id              String                @id @default(uuid()) @db.Uuid
+  transferNumber  String                @unique @default(dbgenerated("'TRF' || lpad((nextval('transfer_number_seq'::regclass))::text, 4, '0'::text)")) @map("transfer_number")
+  hospitalId      String                @map("hospital_id") @db.Uuid
+  sourceType      InventoryLocationType @map("source_type")
+  sourceId        String                @map("source_id") @db.Uuid
+  destinationType InventoryLocationType @map("destination_type")
+  destinationId   String                @map("destination_id") @db.Uuid
+  transferDate    DateTime              @map("transfer_date")
+  businessDate    DateTime              @map("business_date") @db.Date
+  status          TransferStatus        @default(DRAFT)
+  remarks         String?
+  createdAt       DateTime              @default(now()) @map("created_at")
+  createdBy       String?               @map("created_by") @db.Uuid
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+  updatedBy       String?               @map("updated_by") @db.Uuid
+  deletedAt       DateTime?             @map("deleted_at")
+
+  acknowledgements TransferAcknowledgement[]
+  hospital         Hospital                  @relation(fields: [hospitalId], references: [id])
+  lines            TransferLine[]
+
+  @@index([businessDate])
+  @@index([deletedAt])
+  @@index([destinationType, destinationId])
+  @@index([hospitalId])
+  @@index([sourceType, sourceId])
+  @@index([status])
+  @@index([transferDate])
+  @@map("transfers")
+}
+
+model TransferLine {
+  id              String    @id @default(uuid()) @db.Uuid
+  transferId      String    @map("transfer_id") @db.Uuid
+  itemId          String    @map("item_id") @db.Uuid
+  batchNumber     String    @map("batch_number")
+  expiryDate      DateTime  @map("expiry_date") @db.Date
+  sentQty         Decimal   @map("sent_qty") @db.Decimal(12, 3)
+  acceptedQty     Decimal   @default(0) @map("accepted_qty") @db.Decimal(12, 3)
+  rejectedQty     Decimal   @default(0) @map("rejected_qty") @db.Decimal(12, 3)
+  rejectionReason String?   @map("rejection_reason")
+  remarks         String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  createdBy       String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  updatedBy       String?   @map("updated_by") @db.Uuid
+  deletedAt       DateTime? @map("deleted_at")
+
+  acknowledgementLines TransferAcknowledgementLine[]
+  item                 Item                          @relation(fields: [itemId], references: [id])
+  transfer             Transfer                      @relation(fields: [transferId], references: [id])
+
+  @@index([batchNumber])
+  @@index([deletedAt])
+  @@index([expiryDate])
+  @@index([itemId])
+  @@index([transferId])
+  @@map("transfer_lines")
+}
+
+model TransferAcknowledgement {
+  id                  String                        @id @default(uuid()) @db.Uuid
+  transferId          String                        @unique @map("transfer_id") @db.Uuid
+  hospitalId          String                        @map("hospital_id") @db.Uuid
+  acknowledgementDate DateTime                      @default(now()) @map("acknowledgement_date")
+  status              TransferAcknowledgementStatus
+  remarks             String?
+  createdAt           DateTime                      @default(now()) @map("created_at")
+  createdBy           String?                       @map("created_by") @db.Uuid
+  updatedAt           DateTime                      @updatedAt @map("updated_at")
+  updatedBy           String?                       @map("updated_by") @db.Uuid
+  deletedAt           DateTime?                     @map("deleted_at")
+
+  hospital Hospital                      @relation(fields: [hospitalId], references: [id])
+  lines    TransferAcknowledgementLine[]
+  transfer Transfer                      @relation(fields: [transferId], references: [id])
+
+  @@index([acknowledgementDate])
+  @@index([deletedAt])
+  @@index([hospitalId])
+  @@index([status])
+  @@map("transfer_acknowledgements")
+}
+
+model TransferAcknowledgementLine {
+  id                String    @id @default(uuid()) @db.Uuid
+  acknowledgementId String    @map("acknowledgement_id") @db.Uuid
+  transferLineId    String    @map("transfer_line_id") @db.Uuid
+  itemId            String    @map("item_id") @db.Uuid
+  batchNumber       String    @map("batch_number")
+  expiryDate        DateTime  @map("expiry_date") @db.Date
+  sentQty           Decimal   @map("sent_qty") @db.Decimal(12, 3)
+  acceptedQty       Decimal   @map("accepted_qty") @db.Decimal(12, 3)
+  rejectedQty       Decimal   @default(0) @map("rejected_qty") @db.Decimal(12, 3)
+  rejectionReason   String?   @map("rejection_reason")
+  remarks           String?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  createdBy         String?   @map("created_by") @db.Uuid
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  updatedBy         String?   @map("updated_by") @db.Uuid
+  deletedAt         DateTime? @map("deleted_at")
+
+  acknowledgement TransferAcknowledgement @relation(fields: [acknowledgementId], references: [id])
+  item            Item                    @relation(fields: [itemId], references: [id])
+  transferLine    TransferLine            @relation(fields: [transferLineId], references: [id])
+
+  @@index([acknowledgementId])
+  @@index([batchNumber])
+  @@index([deletedAt])
+  @@index([expiryDate])
+  @@index([itemId])
+  @@index([transferLineId])
+  @@map("transfer_acknowledgement_lines")
 }
 
 model StockLedger {

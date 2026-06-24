@@ -547,9 +547,15 @@ export type GrnStatus =
   | 'UNDER_VERIFICATION';
 
 export type InventoryLocationType = 'COUNTER' | 'KITCHEN' | 'RESTAURANT' | 'STORE';
-export type StockReferenceType = 'GRN';
-export type StockTransactionType = 'GRN_IN';
+export type StockReferenceType = 'GRN' | 'TRANSFER' | 'TRANSFER_ACKNOWLEDGEMENT';
+export type StockTransactionType =
+  | 'GRN_IN'
+  | 'RESTAURANT_RECEIVE_IN'
+  | 'STORE_TO_RESTAURANT_OUT'
+  | 'TRANSFER_REJECTED_RETURN_IN';
 export type StockBalanceStatus = 'AVAILABLE' | 'EXPIRED' | 'NEAR_EXPIRY' | 'OUT_OF_STOCK';
+export type TransferStatus = 'ACKNOWLEDGED' | 'CANCELLED' | 'DRAFT' | 'PENDING_ACKNOWLEDGEMENT';
+export type TransferAcknowledgementStatus = 'ACCEPTED_FULL' | 'ACCEPTED_PARTIAL' | 'REJECTED_FULL';
 
 export interface GrnBatch {
   acceptedQty: number;
@@ -720,6 +726,139 @@ export interface StockLedgerListQuery extends ListQuery {
   locationType?: InventoryLocationType;
   toDate?: string;
   transactionType?: StockTransactionType;
+}
+
+export interface TransferLine {
+  acceptedQty: number;
+  batchNumber: string;
+  createdAt: string;
+  expiryDate: string;
+  id: string;
+  item: ItemSummary;
+  itemId: string;
+  rejectedQty: number;
+  rejectionReason: string | null;
+  remarks: string | null;
+  sentQty: number;
+  transferId: string;
+  updatedAt: string;
+}
+
+export interface Transfer {
+  businessDate: string;
+  createdAt: string;
+  deletedAt: string | null;
+  destinationId: string;
+  destinationType: InventoryLocationType;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  lines: TransferLine[];
+  remarks: string | null;
+  sourceId: string;
+  sourceType: InventoryLocationType;
+  status: TransferStatus;
+  transferDate: string;
+  transferNumber: string;
+  updatedAt: string;
+}
+
+export interface TransferLineInput {
+  batchNumber: string;
+  expiryDate: string;
+  itemId: string;
+  remarks?: string;
+  sentQty: number;
+}
+
+export interface TransferInput {
+  destinationId: string;
+  destinationType: InventoryLocationType;
+  hospitalId: string;
+  items: TransferLineInput[];
+  remarks?: string;
+  sourceId: string;
+  sourceType: InventoryLocationType;
+  transferDate: string;
+}
+
+export interface TransferListQuery extends ListQuery {
+  destinationId?: string;
+  destinationType?: InventoryLocationType;
+  fromDate?: string;
+  hospitalId?: string;
+  sourceId?: string;
+  sourceType?: InventoryLocationType;
+  status?: TransferStatus;
+  toDate?: string;
+}
+
+export interface TransferAcknowledgementLine {
+  acceptedQty: number;
+  batchNumber: string;
+  createdAt: string;
+  expiryDate: string;
+  id: string;
+  item: ItemSummary;
+  itemId: string;
+  rejectedQty: number;
+  rejectionReason: string | null;
+  remarks: string | null;
+  sentQty: number;
+  transferLineId: string;
+  updatedAt: string;
+}
+
+export interface TransferAcknowledgement {
+  acknowledgementDate: string;
+  createdAt: string;
+  deletedAt: string | null;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  lines: TransferAcknowledgementLine[];
+  remarks: string | null;
+  status: TransferAcknowledgementStatus;
+  transfer: Pick<
+    Transfer,
+    | 'businessDate'
+    | 'destinationId'
+    | 'destinationType'
+    | 'id'
+    | 'sourceId'
+    | 'sourceType'
+    | 'status'
+    | 'transferDate'
+    | 'transferNumber'
+  >;
+  transferId: string;
+  updatedAt: string;
+}
+
+export interface TransferAcknowledgementLineInput {
+  acceptedQty: number;
+  batchNumber?: string;
+  expiryDate?: string;
+  itemId?: string;
+  rejectedQty: number;
+  rejectionReason?: string;
+  remarks?: string;
+  sentQty?: number;
+  transferLineId: string;
+}
+
+export interface TransferAcknowledgementInput {
+  items: TransferAcknowledgementLineInput[];
+  remarks?: string;
+  transferId: string;
+}
+
+export interface TransferAcknowledgementListQuery extends ListQuery {
+  fromDate?: string;
+  hospitalId?: string;
+  status?: TransferAcknowledgementStatus;
+  toDate?: string;
+  transferId?: string;
 }
 
 function appendQuery(path: string, query?: QueryParams): string {
@@ -946,6 +1085,18 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'POST',
       });
     },
+    createTransfer(body: TransferInput) {
+      return client.request<ApiResponse<Transfer>>('/transfers', {
+        body,
+        method: 'POST',
+      });
+    },
+    createTransferAcknowledgement(body: TransferAcknowledgementInput) {
+      return client.request<ApiResponse<TransferAcknowledgement>>('/transfer-acknowledgements', {
+        body,
+        method: 'POST',
+      });
+    },
     deleteCounter(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/counters/${id}`, { method: 'DELETE' });
     },
@@ -1044,6 +1195,14 @@ export function createOrganizationApi(options: ApiClientOptions) {
     getTimeSlot(id: string) {
       return client.request<ApiResponse<TimeSlot>>(`/time-slots/${id}`);
     },
+    getTransfer(id: string) {
+      return client.request<ApiResponse<Transfer>>(`/transfers/${id}`);
+    },
+    getTransferAcknowledgement(id: string) {
+      return client.request<ApiResponse<TransferAcknowledgement>>(
+        `/transfer-acknowledgements/${id}`,
+      );
+    },
     listCounters(query?: CounterListQuery) {
       return client.request<ApiResponse<ApiList<Counter>>>('/counters', { query });
     },
@@ -1083,6 +1242,14 @@ export function createOrganizationApi(options: ApiClientOptions) {
     listStockLedgers(query?: StockLedgerListQuery) {
       return client.request<ApiResponse<ApiList<StockLedger>>>('/stock-ledgers', { query });
     },
+    listRestaurantStock(query?: StockBalanceListQuery) {
+      return client.request<ApiResponse<ApiList<StockBalance>>>('/restaurant-stock', { query });
+    },
+    listRestaurantStockLedgers(query?: StockLedgerListQuery) {
+      return client.request<ApiResponse<ApiList<StockLedger>>>('/restaurant-stock-ledgers', {
+        query,
+      });
+    },
     listStoreItems(query?: StoreItemListQuery) {
       return client.request<ApiResponse<ApiList<StoreItem>>>('/store-items', { query });
     },
@@ -1091,6 +1258,15 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     listTimeSlots(query?: TimeSlotListQuery) {
       return client.request<ApiResponse<ApiList<TimeSlot>>>('/time-slots', { query });
+    },
+    listTransfers(query?: TransferListQuery) {
+      return client.request<ApiResponse<ApiList<Transfer>>>('/transfers', { query });
+    },
+    listTransferAcknowledgements(query?: TransferAcknowledgementListQuery) {
+      return client.request<ApiResponse<ApiList<TransferAcknowledgement>>>(
+        '/transfer-acknowledgements',
+        { query },
+      );
     },
     updateCounter(id: string, body: Partial<CounterInput>) {
       return client.request<ApiResponse<Counter>>(`/counters/${id}`, {
@@ -1178,6 +1354,16 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     cancelGrn(id: string) {
       return client.request<ApiResponse<Grn>>(`/grns/${id}/cancel`, {
+        method: 'PATCH',
+      });
+    },
+    cancelTransfer(id: string) {
+      return client.request<ApiResponse<Transfer>>(`/transfers/${id}/cancel`, {
+        method: 'PATCH',
+      });
+    },
+    dispatchTransfer(id: string) {
+      return client.request<ApiResponse<Transfer>>(`/transfers/${id}/dispatch`, {
         method: 'PATCH',
       });
     },

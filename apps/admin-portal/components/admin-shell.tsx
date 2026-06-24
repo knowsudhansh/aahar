@@ -2,6 +2,7 @@
 
 import { Button } from '@aahar/ui';
 import {
+  ArrowRightLeft,
   CalendarClock,
   ChefHat,
   ClipboardList,
@@ -41,6 +42,8 @@ const navigation = [
   { href: '/masters/restaurant-menus', icon: Utensils, label: 'Restaurant Menus' },
   { href: '/inventory/grns', icon: ClipboardList, label: 'GRNs' },
   { href: '/inventory/store-stock', icon: Boxes, label: 'Store Stock' },
+  { href: '/inventory/transfers', icon: ArrowRightLeft, label: 'Transfers' },
+  { href: '/inventory/restaurant-stock', icon: Utensils, label: 'Restaurant Stock' },
 ];
 
 function SidebarContent({ onNavigate }: Readonly<{ onNavigate?: () => void }>) {

@@ -34,3 +34,41 @@ export class StockBalancesController {
     return { data: await this.stock.listBalances(query), message: 'Success', success: true };
   }
 }
+
+@ApiBearerAuth('access-token')
+@ApiTags('restaurant-stock-ledgers')
+@Controller('restaurant-stock-ledgers')
+export class RestaurantStockLedgersController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('RESTAURANT_STOCK_VIEW')
+  @ApiOperation({ summary: 'Get restaurant stock ledger entries' })
+  @ApiOkResponse({ description: 'Restaurant stock ledger entries returned successfully.' })
+  async list(@Query() query: ListStockLedgersQueryDto) {
+    return {
+      data: await this.stock.listRestaurantLedgers(query),
+      message: 'Success',
+      success: true,
+    };
+  }
+}
+
+@ApiBearerAuth('access-token')
+@ApiTags('restaurant-stock')
+@Controller('restaurant-stock')
+export class RestaurantStockController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('RESTAURANT_STOCK_VIEW')
+  @ApiOperation({ summary: 'Get current restaurant stock balances' })
+  @ApiOkResponse({ description: 'Restaurant stock balances returned successfully.' })
+  async list(@Query() query: ListStockBalancesQueryDto) {
+    return {
+      data: await this.stock.listRestaurantBalances(query),
+      message: 'Success',
+      success: true,
+    };
+  }
+}

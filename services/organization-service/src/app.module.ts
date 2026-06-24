@@ -31,6 +31,8 @@ import { StockModule } from './stock/stock.module';
 import { StoreItemsModule } from './store-items/store-items.module';
 import { StoresModule } from './stores/stores.module';
 import { TimeSlotsModule } from './time-slots/time-slots.module';
+import { TransferAcknowledgementsModule } from './transfer-acknowledgements/transfer-acknowledgements.module';
+import { TransfersModule } from './transfers/transfers.module';
 
 @Module({
   controllers: [HealthController],
@@ -70,6 +72,8 @@ import { TimeSlotsModule } from './time-slots/time-slots.module';
     StoreItemsModule,
     StoresModule,
     TimeSlotsModule,
+    TransferAcknowledgementsModule,
+    TransfersModule,
   ],
   providers: [
     AuditLoggerService,

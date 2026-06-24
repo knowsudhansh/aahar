@@ -70,6 +70,17 @@ const defaultPermissions = [
   ['GRN_DELETE', 'GRN', 'DELETE', 'Delete draft goods receipt notes'],
   ['GRN_POST', 'GRN', 'POST', 'Post goods receipt notes to stock'],
   ['STOCK_VIEW', 'STOCK', 'VIEW', 'View stock ledger and balances'],
+  ['TRANSFER_CREATE', 'TRANSFER', 'CREATE', 'Create store to restaurant transfers'],
+  ['TRANSFER_VIEW', 'TRANSFER', 'VIEW', 'View transfers and acknowledgements'],
+  ['TRANSFER_DISPATCH', 'TRANSFER', 'DISPATCH', 'Dispatch transfers from store stock'],
+  ['TRANSFER_CANCEL', 'TRANSFER', 'CANCEL', 'Cancel draft transfers'],
+  ['TRANSFER_ACKNOWLEDGE', 'TRANSFER', 'ACKNOWLEDGE', 'Acknowledge restaurant transfers'],
+  [
+    'RESTAURANT_STOCK_VIEW',
+    'RESTAURANT_STOCK',
+    'VIEW',
+    'View restaurant stock ledger and balances',
+  ],
   ['AUDIT_LOG_VIEW', 'AUDIT_LOG', 'VIEW', 'View audit logs'],
 ] as const;
 
