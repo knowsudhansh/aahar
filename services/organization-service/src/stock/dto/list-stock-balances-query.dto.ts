@@ -51,6 +51,11 @@ export class ListStockBalancesQueryDto extends PaginationQueryDto {
   @IsOptional()
   expiryDate?: string;
 
+  @ApiPropertyOptional({ example: '2026-06-24' })
+  @IsDateString()
+  @IsOptional()
+  businessDate?: string;
+
   @ApiPropertyOptional({ enum: stockBalanceStatuses })
   @IsIn(stockBalanceStatuses)
   @IsOptional()

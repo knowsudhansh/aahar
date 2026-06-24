@@ -61,6 +61,10 @@ function quantitiesMatch(left: number, right: number): boolean {
   return Math.abs(left - right) < 0.0005;
 }
 
+function itemStockBusinessDate(itemType: ItemType, businessDate: Date): Date | null {
+  return itemType === ItemType.READYMADE ? toDateOnly(businessDate) : null;
+}
+
 function getAcknowledgementOrderBy(
   query: ListTransferAcknowledgementsQueryDto,
 ): Prisma.TransferAcknowledgementOrderByWithRelationInput {
@@ -160,8 +164,16 @@ export class TransferAcknowledgementsService {
             OR: [
               { remarks: { contains: query.search, mode: 'insensitive' } },
               { transfer: { transferNumber: { contains: query.search, mode: 'insensitive' } } },
-              { lines: { some: { item: { itemCode: { contains: query.search, mode: 'insensitive' } } } } },
-              { lines: { some: { item: { itemName: { contains: query.search, mode: 'insensitive' } } } } },
+              {
+                lines: {
+                  some: { item: { itemCode: { contains: query.search, mode: 'insensitive' } } },
+                },
+              },
+              {
+                lines: {
+                  some: { item: { itemName: { contains: query.search, mode: 'insensitive' } } },
+                },
+              },
             ],
           }
         : {}),
@@ -300,8 +312,11 @@ export class TransferAcknowledgementsService {
       throw new BadRequestException('Only pending transfers can be acknowledged');
     }
 
-    if (transfer.sourceType !== InventoryLocationType.STORE) {
-      throw new BadRequestException('Only Store to Restaurant transfers are supported');
+    if (
+      transfer.sourceType !== InventoryLocationType.STORE &&
+      transfer.sourceType !== InventoryLocationType.KITCHEN
+    ) {
+      throw new BadRequestException('Transfer source must be Store or Kitchen');
     }
 
     if (transfer.destinationType !== InventoryLocationType.RESTAURANT) {
@@ -344,17 +359,26 @@ export class TransferAcknowledgementsService {
 
       if (
         dtoLine.expiryDate &&
-        toDateOnly(dtoLine.expiryDate).getTime() !== toDateOnly(transferLine.expiryDate).getTime()
+        (!transferLine.expiryDate ||
+          toDateOnly(dtoLine.expiryDate).getTime() !==
+            toDateOnly(transferLine.expiryDate).getTime())
       ) {
         throw new BadRequestException(`${lineLabel}: expiry date does not match transfer line`);
       }
 
-      if (dtoLine.sentQty !== undefined && !quantitiesMatch(dtoLine.sentQty, toNumber(transferLine.sentQty))) {
+      if (
+        dtoLine.sentQty !== undefined &&
+        !quantitiesMatch(dtoLine.sentQty, toNumber(transferLine.sentQty))
+      ) {
         throw new BadRequestException(`${lineLabel}: sent quantity does not match transfer line`);
       }
 
-      if (!quantitiesMatch(dtoLine.acceptedQty + dtoLine.rejectedQty, toNumber(transferLine.sentQty))) {
-        throw new BadRequestException(`${lineLabel}: accepted plus rejected quantity must equal sent quantity`);
+      if (
+        !quantitiesMatch(dtoLine.acceptedQty + dtoLine.rejectedQty, toNumber(transferLine.sentQty))
+      ) {
+        throw new BadRequestException(
+          `${lineLabel}: accepted plus rejected quantity must equal sent quantity`,
+        );
       }
 
       if (dtoLine.rejectedQty > 0 && !optionalText(dtoLine.rejectionReason)) {
@@ -386,9 +410,11 @@ export class TransferAcknowledgementsService {
       {
         actorId: context.actorId,
         batchNumber: line.transferLine.batchNumber,
+        businessDate: itemStockBusinessDate(line.transferLine.item.itemType, transfer.businessDate),
         expiryDate: line.transferLine.expiryDate,
         hospitalId: transfer.hospitalId,
         itemId: line.transferLine.itemId,
+        itemType: line.transferLine.item.itemType,
         locationId: transfer.destinationId,
         locationType: InventoryLocationType.RESTAURANT,
         quantity: line.acceptedQty,
@@ -405,7 +431,7 @@ export class TransferAcknowledgementsService {
         expiryDate: line.transferLine.expiryDate,
         hospitalId: transfer.hospitalId,
         itemId: line.transferLine.itemId,
-        itemType: ItemType.MRP,
+        itemType: line.transferLine.item.itemType,
         locationId: transfer.destinationId,
         locationType: InventoryLocationType.RESTAURANT,
         qtyIn: line.acceptedQty,
@@ -414,7 +440,7 @@ export class TransferAcknowledgementsService {
         referenceType: StockReferenceType.TRANSFER_ACKNOWLEDGEMENT,
         remarks: line.remarks,
         transactionDateTime: new Date(),
-        transactionType: StockTransactionType.RESTAURANT_RECEIVE_IN,
+        transactionType: StockTransactionType.RESTAURANT_TRANSFER_IN,
         updatedBy: context.actorId,
       },
       client,
@@ -436,11 +462,13 @@ export class TransferAcknowledgementsService {
       {
         actorId: context.actorId,
         batchNumber: line.transferLine.batchNumber,
+        businessDate: itemStockBusinessDate(line.transferLine.item.itemType, transfer.businessDate),
         expiryDate: line.transferLine.expiryDate,
         hospitalId: transfer.hospitalId,
         itemId: line.transferLine.itemId,
+        itemType: line.transferLine.item.itemType,
         locationId: transfer.sourceId,
-        locationType: InventoryLocationType.STORE,
+        locationType: transfer.sourceType,
         quantity: line.rejectedQty,
       },
       client,
@@ -455,9 +483,9 @@ export class TransferAcknowledgementsService {
         expiryDate: line.transferLine.expiryDate,
         hospitalId: transfer.hospitalId,
         itemId: line.transferLine.itemId,
-        itemType: ItemType.MRP,
+        itemType: line.transferLine.item.itemType,
         locationId: transfer.sourceId,
-        locationType: InventoryLocationType.STORE,
+        locationType: transfer.sourceType,
         qtyIn: line.rejectedQty,
         qtyOut: 0,
         referenceId: acknowledgementId,

@@ -20,14 +20,16 @@ export class CreateTransferLineDto {
   @IsUUID()
   itemId!: string;
 
-  @ApiProperty({ example: 'BATCH-A' })
+  @ApiPropertyOptional({ example: 'BATCH-A' })
+  @IsOptional()
   @IsString()
   @MaxLength(100)
-  batchNumber!: string;
+  batchNumber?: string;
 
-  @ApiProperty({ example: '2026-12-31' })
+  @ApiPropertyOptional({ example: '2026-12-31' })
+  @IsOptional()
   @IsDateString()
-  expiryDate!: string;
+  expiryDate?: string;
 
   @ApiProperty({ example: 10, minimum: 0.001 })
   @IsNumber({ maxDecimalPlaces: 3 })
@@ -65,6 +67,11 @@ export class CreateTransferDto {
   @ApiProperty({ example: '2026-06-24T10:00:00.000Z' })
   @IsDateString()
   transferDate!: string;
+
+  @ApiPropertyOptional({ example: '2026-06-24' })
+  @IsDateString()
+  @IsOptional()
+  businessDate?: string;
 
   @ApiPropertyOptional({ example: 'Transfer to Main Cafeteria' })
   @IsOptional()

@@ -96,6 +96,9 @@ const defaultPermissions = [
   ['TRANSFER_DISPATCH', 'TRANSFER', 'DISPATCH', 'Dispatch transfers from store stock'],
   ['TRANSFER_CANCEL', 'TRANSFER', 'CANCEL', 'Cancel draft transfers'],
   ['TRANSFER_ACKNOWLEDGE', 'TRANSFER', 'ACKNOWLEDGE', 'Acknowledge restaurant transfers'],
+  ['KITCHEN_TRANSFER_CREATE', 'TRANSFER', 'CREATE', 'Create kitchen to restaurant transfers'],
+  ['KITCHEN_TRANSFER_VIEW', 'TRANSFER', 'VIEW', 'View kitchen to restaurant transfers'],
+  ['KITCHEN_TRANSFER_DISPATCH', 'TRANSFER', 'DISPATCH', 'Dispatch transfers from kitchen stock'],
   [
     'RESTAURANT_STOCK_VIEW',
     'RESTAURANT_STOCK',

@@ -21,6 +21,8 @@ import type {
   GrnInput,
   GrnStatus,
   Hospital,
+  InventoryLocationType,
+  Kitchen,
   Restaurant,
   SortOrder,
   StockBalance,
@@ -464,6 +466,29 @@ function StoreSelect({
       {stores.map((store) => (
         <option key={store.id} value={store.id}>
           {store.storeName}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
+function KitchenSelect({
+  disabled,
+  kitchens,
+  onChange,
+  value,
+}: Readonly<{
+  disabled?: boolean;
+  kitchens: Kitchen[];
+  onChange: (value: string) => void;
+  value: string;
+}>) {
+  return (
+    <Select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
+      <option value="">Select kitchen</option>
+      {kitchens.map((kitchen) => (
+        <option key={kitchen.id} value={kitchen.id}>
+          {kitchen.kitchenName}
         </option>
       ))}
     </Select>
@@ -1420,10 +1445,12 @@ export function StoreStockPageClient() {
 }
 
 interface TransferHeaderFormValues {
+  businessDate: string;
   hospitalId: string;
   remarks: string;
   restaurantId: string;
-  storeId: string;
+  sourceId: string;
+  sourceType: InventoryLocationType;
   transferDate: string;
 }
 
@@ -1443,10 +1470,12 @@ interface AcknowledgementLineDraft {
 }
 
 const transferHeaderSchema = z.object({
+  businessDate: z.string().trim(),
   hospitalId: z.string().uuid('Select a hospital.'),
   remarks: z.string().trim(),
   restaurantId: z.string().uuid('Select a restaurant.'),
-  storeId: z.string().uuid('Select a store.'),
+  sourceId: z.string().uuid('Select a source.'),
+  sourceType: z.enum(['STORE', 'KITCHEN']),
   transferDate: z.string().trim().min(1, 'Transfer date is required.'),
 });
 
@@ -1455,7 +1484,7 @@ const transferLinesSchema = z
     z.object({
       remarks: z.string().trim(),
       sentQty: z.coerce.number().min(0.001, 'Transfer quantity must be greater than zero.'),
-      stockBalanceId: z.string().uuid('Select store stock.'),
+      stockBalanceId: z.string().uuid('Select source stock.'),
     }),
   )
   .min(1, 'Add at least one transfer line.');
@@ -1491,6 +1520,24 @@ function useRestaurants(hospitalId?: string) {
   });
 }
 
+function useKitchens(hospitalId?: string) {
+  return useQuery({
+    enabled: Boolean(hospitalId),
+    queryFn: async () => {
+      const response = await organizationApi.listKitchens({
+        hospitalId,
+        isActive: true,
+        limit: 100,
+        sortBy: 'kitchenName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['inventory-kitchens', hospitalId],
+  });
+}
+
 function useAllStores() {
   return useQuery({
     queryFn: async () => {
@@ -1504,6 +1551,22 @@ function useAllStores() {
       return response.data.items;
     },
     queryKey: ['inventory-all-stores'],
+  });
+}
+
+function useAllKitchens() {
+  return useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listKitchens({
+        isActive: true,
+        limit: 100,
+        sortBy: 'kitchenName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['inventory-all-kitchens'],
   });
 }
 
@@ -1542,6 +1605,40 @@ function useStoreStock(storeId?: string) {
   });
 }
 
+function useKitchenStock(kitchenId?: string, businessDate?: string) {
+  return useQuery({
+    enabled: Boolean(kitchenId),
+    queryFn: async () => {
+      const businessDateFilter = optionalValue(businessDate ?? '');
+      const response = await organizationApi.listKitchenStock({
+        ...(businessDateFilter ? { businessDate: businessDateFilter } : {}),
+        itemType: 'READYMADE',
+        limit: 100,
+        locationId: kitchenId,
+        sortBy: 'lastUpdatedOn',
+        sortOrder: 'desc',
+      });
+
+      return response.data.items.filter((stock) => stock.availableQty > 0);
+    },
+    queryKey: ['transfer-kitchen-stock', kitchenId, optionalValue(businessDate ?? '')],
+  });
+}
+
+function useSourceStock(
+  sourceType: InventoryLocationType,
+  sourceId?: string,
+  businessDate?: string,
+) {
+  const storeStock = useStoreStock(sourceType === 'STORE' ? sourceId : undefined);
+  const kitchenStock = useKitchenStock(
+    sourceType === 'KITCHEN' ? sourceId : undefined,
+    businessDate,
+  );
+
+  return sourceType === 'KITCHEN' ? kitchenStock : storeStock;
+}
+
 function RestaurantSelect({
   disabled,
   onChange,
@@ -1566,7 +1663,12 @@ function RestaurantSelect({
 }
 
 function stockOptionLabel(stock: StockBalance): string {
-  return `${stock.item.itemName} (${stock.item.itemCode}) - ${stock.batchNumber ?? 'No batch'} - ${formatDateOnly(stock.expiryDate)} - ${stock.availableQty.toFixed(3)} available`;
+  const sourceDate =
+    stock.itemType === 'READYMADE'
+      ? `Business ${formatDateOnly(stock.businessDate)}`
+      : `${stock.batchNumber ?? 'No batch'} - ${formatDateOnly(stock.expiryDate)}`;
+
+  return `${stock.item.itemName} (${stock.item.itemCode}) - ${sourceDate} - ${stock.availableQty.toFixed(3)} available`;
 }
 
 export function TransfersPageClient() {
@@ -1576,7 +1678,9 @@ export function TransfersPageClient() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState<'' | InventoryLocationType>('');
   const [storeFilter, setStoreFilter] = useState('');
+  const [kitchenFilter, setKitchenFilter] = useState('');
   const [restaurantFilter, setRestaurantFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | TransferStatus>('');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
@@ -1586,8 +1690,10 @@ export function TransfersPageClient() {
   const [partialError, setPartialError] = useState('');
   const hospitalsQuery = useHospitals();
   const storesQuery = useStores(hospitalFilter);
+  const kitchensQuery = useKitchens(hospitalFilter);
   const restaurantsQuery = useRestaurants(hospitalFilter);
   const allStoresQuery = useAllStores();
+  const allKitchensQuery = useAllKitchens();
   const allRestaurantsQuery = useAllRestaurants();
   const storeMap = useMemo(
     () => new Map((allStoresQuery.data ?? []).map((store) => [store.id, store])),
@@ -1595,10 +1701,12 @@ export function TransfersPageClient() {
   );
   const restaurantMap = useMemo(
     () =>
-      new Map(
-        (allRestaurantsQuery.data ?? []).map((restaurant) => [restaurant.id, restaurant]),
-      ),
+      new Map((allRestaurantsQuery.data ?? []).map((restaurant) => [restaurant.id, restaurant])),
     [allRestaurantsQuery.data],
+  );
+  const kitchenMap = useMemo(
+    () => new Map((allKitchensQuery.data ?? []).map((kitchen) => [kitchen.id, kitchen])),
+    [allKitchensQuery.data],
   );
 
   const transfersQuery = useQuery({
@@ -1612,8 +1720,13 @@ export function TransfersPageClient() {
         search,
         sortBy: 'createdAt',
         sortOrder,
-        sourceId: storeFilter,
-        sourceType: 'STORE',
+        sourceId:
+          sourceTypeFilter === 'STORE'
+            ? storeFilter
+            : sourceTypeFilter === 'KITCHEN'
+              ? kitchenFilter
+              : undefined,
+        sourceType: sourceTypeFilter || undefined,
         status: statusFilter || undefined,
       });
 
@@ -1624,7 +1737,9 @@ export function TransfersPageClient() {
       page,
       search,
       hospitalFilter,
+      sourceTypeFilter,
       storeFilter,
+      kitchenFilter,
       restaurantFilter,
       statusFilter,
       sortOrder,
@@ -1652,6 +1767,7 @@ export function TransfersPageClient() {
       void queryClient.invalidateQueries({ queryKey: ['transfer-acknowledgements'] });
       void queryClient.invalidateQueries({ queryKey: ['restaurant-stock'] });
       void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
       showToast({ title: 'Transfer acknowledged', variant: 'success' });
     },
   });
@@ -1668,6 +1784,7 @@ export function TransfersPageClient() {
     onSuccess() {
       void queryClient.invalidateQueries({ queryKey: ['transfers'] });
       void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
       showToast({ title: 'Transfer dispatched', variant: 'success' });
     },
   });
@@ -1696,8 +1813,8 @@ export function TransfersPageClient() {
   ): TransferAcknowledgementLineInput[] {
     return transfer.lines.map((line) => ({
       acceptedQty: mode === 'ACCEPT_FULL' ? line.sentQty : 0,
-      batchNumber: line.batchNumber,
-      expiryDate: line.expiryDate,
+      batchNumber: line.batchNumber ?? undefined,
+      expiryDate: line.expiryDate ?? undefined,
       itemId: line.itemId,
       rejectedQty: mode === 'REJECT_FULL' ? line.sentQty : 0,
       rejectionReason: mode === 'REJECT_FULL' ? 'Rejected at restaurant' : undefined,
@@ -1757,8 +1874,8 @@ export function TransfersPageClient() {
 
       items.push({
         acceptedQty,
-        batchNumber: transferLine.batchNumber,
-        expiryDate: transferLine.expiryDate,
+        batchNumber: transferLine.batchNumber ?? undefined,
+        expiryDate: transferLine.expiryDate ?? undefined,
         itemId: transferLine.itemId,
         rejectedQty,
         rejectionReason: optionalValue(line.rejectionReason),
@@ -1784,11 +1901,11 @@ export function TransfersPageClient() {
             New Transfer
           </Button>
         }
-        subtitle="Move MRP stock from store to restaurant with acknowledgement."
+        subtitle="Move Store MRP stock or Kitchen READYMADE stock to restaurants with acknowledgement."
         title="Transfers"
       />
       <Panel>
-        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_180px_130px_auto]">
+        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_160px_140px_170px_170px_170px_120px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
@@ -1800,21 +1917,49 @@ export function TransfersPageClient() {
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
+              setSourceTypeFilter('');
               setStoreFilter('');
+              setKitchenFilter('');
               setRestaurantFilter('');
               setPage(1);
             }}
             value={hospitalFilter}
           />
-          <StoreSelect
+          <Select
             disabled={!hospitalFilter}
-            onChange={(value) => {
-              setStoreFilter(value);
+            onChange={(event) => {
+              setSourceTypeFilter(event.target.value as '' | InventoryLocationType);
+              setStoreFilter('');
+              setKitchenFilter('');
               setPage(1);
             }}
-            stores={storesQuery.data ?? []}
-            value={storeFilter}
-          />
+            value={sourceTypeFilter}
+          >
+            <option value="">All sources</option>
+            <option value="STORE">Store</option>
+            <option value="KITCHEN">Kitchen</option>
+          </Select>
+          {sourceTypeFilter === 'KITCHEN' ? (
+            <KitchenSelect
+              disabled={!hospitalFilter}
+              kitchens={kitchensQuery.data ?? []}
+              onChange={(value) => {
+                setKitchenFilter(value);
+                setPage(1);
+              }}
+              value={kitchenFilter}
+            />
+          ) : (
+            <StoreSelect
+              disabled={!hospitalFilter || sourceTypeFilter === ''}
+              onChange={(value) => {
+                setStoreFilter(value);
+                setPage(1);
+              }}
+              stores={storesQuery.data ?? []}
+              value={storeFilter}
+            />
+          )}
           <RestaurantSelect
             disabled={!hospitalFilter}
             onChange={(value) => {
@@ -1857,7 +2002,7 @@ export function TransfersPageClient() {
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
                 <th className="w-[13%] px-4 py-3">Transfer</th>
-                <th className="w-[15%] px-4 py-3">Store</th>
+                <th className="w-[15%] px-4 py-3">Source</th>
                 <th className="w-[15%] px-4 py-3">Restaurant</th>
                 <th className="w-[14%] px-4 py-3">Transfer Date</th>
                 <th className="w-[12%] px-4 py-3">Status</th>
@@ -1875,10 +2020,14 @@ export function TransfersPageClient() {
                     </td>
                     <td className="px-4 py-4">
                       <p className="font-medium text-slate-950">
-                        {storeMap.get(transfer.sourceId)?.storeName ?? transfer.sourceId}
+                        {transfer.sourceType === 'KITCHEN'
+                          ? (kitchenMap.get(transfer.sourceId)?.kitchenName ?? transfer.sourceId)
+                          : (storeMap.get(transfer.sourceId)?.storeName ?? transfer.sourceId)}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {storeMap.get(transfer.sourceId)?.storeCode ?? 'Store'}
+                        {transfer.sourceType === 'KITCHEN'
+                          ? (kitchenMap.get(transfer.sourceId)?.kitchenCode ?? 'Kitchen')
+                          : (storeMap.get(transfer.sourceId)?.storeCode ?? 'Store')}
                       </p>
                     </td>
                     <td className="px-4 py-4">
@@ -1887,8 +2036,7 @@ export function TransfersPageClient() {
                           transfer.destinationId}
                       </p>
                       <p className="text-xs text-slate-500">
-                        {restaurantMap.get(transfer.destinationId)?.restaurantCode ??
-                          'Restaurant'}
+                        {restaurantMap.get(transfer.destinationId)?.restaurantCode ?? 'Restaurant'}
                       </p>
                     </td>
                     <td className="px-4 py-4 text-slate-600">
@@ -2015,7 +2163,7 @@ export function TransfersPageClient() {
                 <div>
                   <p className="font-medium text-slate-950">{line.item.itemName}</p>
                   <p className="text-xs text-slate-500">
-                    {line.batchNumber} - {formatDateOnly(line.expiryDate)} - Sent{' '}
+                    {line.batchNumber ?? 'No batch'} - {formatDateOnly(line.expiryDate)} - Sent{' '}
                     {line.sentQty.toFixed(3)}
                   </p>
                 </div>
@@ -2063,11 +2211,7 @@ export function TransfersPageClient() {
             </div>
           ) : null}
           <div className="mt-5 flex justify-end">
-            <Button
-              disabled={acknowledgeMutation.isPending}
-              onClick={submitPartial}
-              type="button"
-            >
+            <Button disabled={acknowledgeMutation.isPending} onClick={submitPartial} type="button">
               {acknowledgeMutation.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -2091,20 +2235,25 @@ export function CreateTransferPageClient() {
   const [createdTransfer, setCreatedTransfer] = useState<Transfer | null>(null);
   const form = useForm<TransferHeaderFormValues>({
     defaultValues: {
+      businessDate: '',
       hospitalId: '',
       remarks: '',
       restaurantId: '',
-      storeId: '',
+      sourceId: '',
+      sourceType: 'STORE',
       transferDate: defaultTransferDate(),
     },
   });
   const selectedHospitalId = form.watch('hospitalId');
-  const selectedStoreId = form.watch('storeId');
+  const selectedSourceId = form.watch('sourceId');
+  const selectedSourceType = form.watch('sourceType');
+  const selectedBusinessDate = form.watch('businessDate');
   const selectedRestaurantId = form.watch('restaurantId');
   const hospitalsQuery = useHospitals();
   const storesQuery = useStores(selectedHospitalId);
+  const kitchensQuery = useKitchens(selectedHospitalId);
   const restaurantsQuery = useRestaurants(selectedHospitalId);
-  const stockQuery = useStoreStock(selectedStoreId);
+  const stockQuery = useSourceStock(selectedSourceType, selectedSourceId, selectedBusinessDate);
   const stockOptions = stockQuery.data ?? [];
   const stockMap = useMemo(
     () => new Map(stockOptions.map((stock) => [stock.id, stock])),
@@ -2145,6 +2294,7 @@ export function CreateTransferPageClient() {
       setCreatedTransfer(response.data);
       void queryClient.invalidateQueries({ queryKey: ['transfers'] });
       void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
       showToast({ title: 'Transfer dispatched', variant: 'success' });
     },
   });
@@ -2192,6 +2342,7 @@ export function CreateTransferPageClient() {
       return;
     }
 
+    const selectedStocks: StockBalance[] = [];
     const totals = new Map<string, number>();
 
     for (const line of lines) {
@@ -2199,10 +2350,11 @@ export function CreateTransferPageClient() {
       const sentQty = Number(line.sentQty || 0);
 
       if (!stock) {
-        setFormError('Select valid store stock for every line.');
+        setFormError('Select valid source stock for every line.');
         return;
       }
 
+      selectedStocks.push(stock);
       totals.set(stock.id, (totals.get(stock.id) ?? 0) + sentQty);
     }
 
@@ -2210,14 +2362,45 @@ export function CreateTransferPageClient() {
       const stock = stockMap.get(stockId);
 
       if (!stock || requestedQty > stock.availableQty) {
-        setFormError('Transfer quantity cannot exceed available store quantity.');
+        setFormError('Transfer quantity cannot exceed available source quantity.');
         return;
+      }
+    }
+
+    const businessDateFilter = optionalValue(header.data.businessDate);
+    let transferBusinessDate = businessDateFilter;
+
+    if (header.data.sourceType === 'KITCHEN') {
+      const stockBusinessDates = new Set(
+        selectedStocks.map((stock) => toDateOnlyValue(stock.businessDate)).filter(Boolean),
+      );
+
+      if (stockBusinessDates.size === 0) {
+        setFormError('Selected kitchen stock is missing a business date.');
+        return;
+      }
+
+      if (businessDateFilter) {
+        const mismatchedStock = selectedStocks.find(
+          (stock) => toDateOnlyValue(stock.businessDate) !== businessDateFilter,
+        );
+
+        if (mismatchedStock) {
+          setFormError('Selected kitchen stock does not match the chosen business date.');
+          return;
+        }
+      } else if (stockBusinessDates.size > 1) {
+        setFormError('Select kitchen stock from one business date per transfer.');
+        return;
+      } else {
+        transferBusinessDate = [...stockBusinessDates][0];
       }
     }
 
     const payload: TransferInput = {
       destinationId: header.data.restaurantId,
       destinationType: 'RESTAURANT',
+      ...(transferBusinessDate ? { businessDate: transferBusinessDate } : {}),
       hospitalId: header.data.hospitalId,
       items: lines.map((line) => {
         const stock = stockMap.get(line.stockBalanceId);
@@ -2227,16 +2410,17 @@ export function CreateTransferPageClient() {
         }
 
         return {
-          batchNumber: stock.batchNumber ?? '',
-          expiryDate: toDateOnlyValue(stock.expiryDate),
+          batchNumber: header.data.sourceType === 'STORE' ? (stock.batchNumber ?? '') : undefined,
+          expiryDate:
+            header.data.sourceType === 'STORE' ? toDateOnlyValue(stock.expiryDate) : undefined,
           itemId: stock.itemId,
           remarks: optionalValue(line.remarks),
           sentQty: Number(line.sentQty),
         };
       }),
       remarks: optionalValue(header.data.remarks),
-      sourceId: header.data.storeId,
-      sourceType: 'STORE',
+      sourceId: header.data.sourceId,
+      sourceType: header.data.sourceType,
       transferDate: new Date(header.data.transferDate).toISOString(),
     };
 
@@ -2246,7 +2430,7 @@ export function CreateTransferPageClient() {
   return (
     <section className="space-y-6">
       <PageHeader
-        subtitle="Create a store to restaurant stock transfer from available MRP batches."
+        subtitle="Create a Store or Kitchen to Restaurant stock transfer from available source stock."
         title="Create Transfer"
       />
 
@@ -2257,7 +2441,7 @@ export function CreateTransferPageClient() {
               Transfer {createdTransfer.transferNumber} is {formatEnum(createdTransfer.status)}
             </p>
             <p className="text-sm text-teal-800">
-              Dispatch when the stock physically leaves the store.
+              Dispatch when the stock physically leaves the selected source.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -2273,7 +2457,11 @@ export function CreateTransferPageClient() {
               )}
               Dispatch
             </Button>
-            <Button onClick={() => router.push('/inventory/transfers')} type="button" variant="outline">
+            <Button
+              onClick={() => router.push('/inventory/transfers')}
+              type="button"
+              variant="outline"
+            >
               View Transfers
             </Button>
           </div>
@@ -2292,7 +2480,7 @@ export function CreateTransferPageClient() {
               Transfer Header
             </h2>
             <p className="text-sm text-slate-500">
-              Select hospital, source store, and receiving restaurant.
+              Select hospital, source type, source, and receiving restaurant.
             </p>
           </div>
           <div className="grid gap-5 md:grid-cols-2">
@@ -2305,7 +2493,7 @@ export function CreateTransferPageClient() {
                 hospitals={hospitalsQuery.data ?? []}
                 onChange={(value) => {
                   form.setValue('hospitalId', value, { shouldValidate: true });
-                  form.setValue('storeId', '', { shouldValidate: true });
+                  form.setValue('sourceId', '', { shouldValidate: true });
                   form.setValue('restaurantId', '', { shouldValidate: true });
                   setLines([emptyTransferLine()]);
                   resetCreated();
@@ -2313,17 +2501,51 @@ export function CreateTransferPageClient() {
                 value={selectedHospitalId}
               />
             </Field>
-            <Field error={form.formState.errors.storeId?.message} label="Store" name="storeId">
-              <StoreSelect
+            <Field
+              error={form.formState.errors.sourceType?.message}
+              label="Source Type"
+              name="sourceType"
+            >
+              <Select
                 disabled={!selectedHospitalId || isReadOnly}
-                onChange={(value) => {
-                  form.setValue('storeId', value, { shouldValidate: true });
+                onChange={(event) => {
+                  form.setValue('sourceType', event.target.value as InventoryLocationType, {
+                    shouldValidate: true,
+                  });
+                  form.setValue('sourceId', '', { shouldValidate: true });
                   setLines([emptyTransferLine()]);
                   resetCreated();
                 }}
-                stores={storesQuery.data ?? []}
-                value={selectedStoreId}
-              />
+                value={selectedSourceType}
+              >
+                <option value="STORE">Store</option>
+                <option value="KITCHEN">Kitchen</option>
+              </Select>
+            </Field>
+            <Field error={form.formState.errors.sourceId?.message} label="Source" name="sourceId">
+              {selectedSourceType === 'KITCHEN' ? (
+                <KitchenSelect
+                  disabled={!selectedHospitalId || isReadOnly}
+                  kitchens={kitchensQuery.data ?? []}
+                  onChange={(value) => {
+                    form.setValue('sourceId', value, { shouldValidate: true });
+                    setLines([emptyTransferLine()]);
+                    resetCreated();
+                  }}
+                  value={selectedSourceId}
+                />
+              ) : (
+                <StoreSelect
+                  disabled={!selectedHospitalId || isReadOnly}
+                  onChange={(value) => {
+                    form.setValue('sourceId', value, { shouldValidate: true });
+                    setLines([emptyTransferLine()]);
+                    resetCreated();
+                  }}
+                  stores={storesQuery.data ?? []}
+                  value={selectedSourceId}
+                />
+              )}
             </Field>
             <Field
               error={form.formState.errors.restaurantId?.message}
@@ -2351,6 +2573,13 @@ export function CreateTransferPageClient() {
                 {...form.register('transferDate')}
               />
             </Field>
+            <Field
+              error={form.formState.errors.businessDate?.message}
+              label="Business Date Filter"
+              name="businessDate"
+            >
+              <Input disabled={isReadOnly} type="date" {...form.register('businessDate')} />
+            </Field>
             <Field label="Remarks" name="remarks">
               <Input disabled={isReadOnly} placeholder="Optional" {...form.register('remarks')} />
             </Field>
@@ -2363,11 +2592,11 @@ export function CreateTransferPageClient() {
                   Transfer Lines
                 </h2>
                 <p className="text-sm text-slate-500">
-                  Pick available store stock by item, batch, and expiry.
+                  Pick available source stock by item and stock key.
                 </p>
               </div>
               <Button
-                disabled={!selectedStoreId || isReadOnly}
+                disabled={!selectedSourceId || isReadOnly}
                 onClick={addLine}
                 type="button"
                 variant="outline"
@@ -2377,15 +2606,19 @@ export function CreateTransferPageClient() {
               </Button>
             </div>
 
-            {!selectedStoreId ? (
+            {!selectedSourceId ? (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
-                Select a hospital and store before adding transfer lines.
+                Select a hospital and source before adding transfer lines.
               </div>
             ) : null}
 
-            {selectedStoreId && stockOptions.length === 0 && !stockQuery.isLoading ? (
+            {selectedSourceId && stockOptions.length === 0 && !stockQuery.isLoading ? (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
-                No available MRP store stock found for this store.
+                {selectedSourceType === 'KITCHEN'
+                  ? selectedBusinessDate
+                    ? 'No available READYMADE kitchen stock found for this kitchen and business date.'
+                    : 'No available READYMADE kitchen stock found for this kitchen.'
+                  : 'No available MRP store stock found for this store.'}
               </div>
             ) : null}
 
@@ -2398,9 +2631,9 @@ export function CreateTransferPageClient() {
                     className="grid gap-3 rounded-lg border bg-white p-4 lg:grid-cols-[minmax(0,1fr)_130px_130px_130px_1fr_auto]"
                     key={line.clientId}
                   >
-                    <Field label="Store Stock" name={`transfer-line-${line.clientId}-stock`}>
+                    <Field label="Source Stock" name={`transfer-line-${line.clientId}-stock`}>
                       <Select
-                        disabled={!selectedStoreId || isReadOnly}
+                        disabled={!selectedSourceId || isReadOnly}
                         onChange={(event) =>
                           updateLine(index, { stockBalanceId: event.target.value })
                         }
@@ -2416,12 +2649,18 @@ export function CreateTransferPageClient() {
                     </Field>
                     <div className="rounded-md border bg-slate-50 p-3 text-sm">
                       <p className="text-slate-500">Batch</p>
-                      <p className="font-semibold text-slate-950">{stock?.batchNumber ?? '-'}</p>
+                      <p className="font-semibold text-slate-950">
+                        {stock?.batchNumber ?? 'No batch'}
+                      </p>
                     </div>
                     <div className="rounded-md border bg-slate-50 p-3 text-sm">
-                      <p className="text-slate-500">Expiry</p>
+                      <p className="text-slate-500">
+                        {selectedSourceType === 'KITCHEN' ? 'Business Date' : 'Expiry'}
+                      </p>
                       <p className="font-semibold text-slate-950">
-                        {formatDateOnly(stock?.expiryDate)}
+                        {selectedSourceType === 'KITCHEN'
+                          ? formatDateOnly(stock?.businessDate)
+                          : formatDateOnly(stock?.expiryDate)}
                       </p>
                     </div>
                     <div className="rounded-md border bg-slate-50 p-3 text-sm">
@@ -2493,7 +2732,6 @@ export function RestaurantStockPageClient() {
     queryFn: async () => {
       const response = await organizationApi.listRestaurantStock({
         hospitalId: hospitalFilter,
-        itemType: 'MRP',
         limit: listLimit,
         locationId: restaurantFilter,
         page,
@@ -2566,12 +2804,13 @@ export function RestaurantStockPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
-                <th className="w-[20%] px-4 py-3">Restaurant</th>
-                <th className="w-[22%] px-4 py-3">Item</th>
-                <th className="w-[16%] px-4 py-3">Batch</th>
-                <th className="w-[16%] px-4 py-3">Expiry</th>
-                <th className="w-[14%] px-4 py-3">Available Qty</th>
-                <th className="w-[12%] px-4 py-3">Status</th>
+                <th className="w-[18%] px-4 py-3">Restaurant</th>
+                <th className="w-[12%] px-4 py-3">Source</th>
+                <th className="w-[20%] px-4 py-3">Item</th>
+                <th className="w-[14%] px-4 py-3">Batch</th>
+                <th className="w-[14%] px-4 py-3">Expiry / Date</th>
+                <th className="w-[12%] px-4 py-3">Available Qty</th>
+                <th className="w-[10%] px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -2583,11 +2822,20 @@ export function RestaurantStockPageClient() {
                       <p className="text-xs text-slate-500">{stock.location.code}</p>
                     </td>
                     <td className="px-4 py-4">
+                      <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
+                        {stock.itemType === 'READYMADE' ? 'Kitchen' : 'Store'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-4">
                       <p className="font-medium text-slate-950">{stock.item.itemName}</p>
                       <p className="text-xs text-slate-500">{stock.item.itemCode}</p>
                     </td>
-                    <td className="px-4 py-4 text-slate-600">{stock.batchNumber}</td>
-                    <td className="px-4 py-4 text-slate-600">{formatDateOnly(stock.expiryDate)}</td>
+                    <td className="px-4 py-4 text-slate-600">{stock.batchNumber ?? 'No batch'}</td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {stock.itemType === 'READYMADE'
+                        ? formatDateOnly(stock.businessDate)
+                        : formatDateOnly(stock.expiryDate)}
+                    </td>
                     <td className="px-4 py-4 font-semibold text-slate-950">
                       {stock.availableQty.toFixed(3)}
                     </td>
@@ -2600,7 +2848,7 @@ export function RestaurantStockPageClient() {
                 ))
               ) : (
                 <QueryState
-                  colSpan={6}
+                  colSpan={7}
                   error={stockQuery.error}
                   isError={stockQuery.isError}
                   isLoading={stockQuery.isLoading}

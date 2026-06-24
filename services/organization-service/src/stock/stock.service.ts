@@ -254,6 +254,7 @@ export class StockService {
       ...(query.batchNumber
         ? { batchNumber: { contains: query.batchNumber, mode: 'insensitive' } }
         : {}),
+      ...(query.businessDate ? { businessDate: toDateOnly(query.businessDate) } : {}),
       ...(query.expiryDate ? { expiryDate: toDateOnly(query.expiryDate) } : {}),
       ...(query.hospitalId ? { hospitalId: query.hospitalId } : {}),
       ...(query.itemId ? { itemId: query.itemId } : {}),

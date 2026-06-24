@@ -17,9 +17,11 @@ import { TransfersRepository, TransferWithRelations } from './transfers.reposito
 type TransferClient = Prisma.TransactionClient;
 
 interface PreparedTransferLine {
-  batchNumber: string;
-  expiryDate: Date;
+  batchNumber: string | null;
+  expiryDate: Date | null;
   itemId: string;
+  itemName: string;
+  itemType: ItemType;
   remarks?: string;
   sentQty: number;
 }
@@ -53,18 +55,14 @@ function toNumber(value: Prisma.Decimal | number): number {
 }
 
 function formatQuantity(value: number): string {
-  return value
-    .toFixed(3)
-    .replace(/\.?0+$/, '');
+  return value.toFixed(3).replace(/\.?0+$/, '');
 }
 
 function formatDateOnly(value: Date): string {
   return toDateOnly(value).toISOString().slice(0, 10);
 }
 
-function getTransferOrderBy(
-  query: ListTransfersQueryDto,
-): Prisma.TransferOrderByWithRelationInput {
+function getTransferOrderBy(query: ListTransfersQueryDto): Prisma.TransferOrderByWithRelationInput {
   const sortBy: TransferSortField = query.sortBy ?? 'createdAt';
 
   return {
@@ -72,22 +70,77 @@ function getTransferOrderBy(
   };
 }
 
-function stockKey(input: { batchNumber: string | null; expiryDate: Date | null; itemId: string }): string {
+function stockKey(input: {
+  batchNumber: string | null;
+  businessDate?: Date | null;
+  expiryDate: Date | null;
+  itemId: string;
+}): string {
   return `${input.itemId}|${input.batchNumber ?? ''}|${
     input.expiryDate ? formatDateOnly(input.expiryDate) : ''
-  }`;
+  }|${input.businessDate ? formatDateOnly(input.businessDate) : ''}`;
+}
+
+function sourceItemType(sourceType: InventoryLocationType): ItemType {
+  return sourceType === InventoryLocationType.KITCHEN ? ItemType.READYMADE : ItemType.MRP;
+}
+
+function dispatchTransactionType(sourceType: InventoryLocationType): StockTransactionType {
+  return sourceType === InventoryLocationType.KITCHEN
+    ? StockTransactionType.KITCHEN_TRANSFER_OUT
+    : StockTransactionType.STORE_TO_RESTAURANT_OUT;
+}
+
+function sourceDisplayName(sourceType: InventoryLocationType): string {
+  return sourceType === InventoryLocationType.KITCHEN ? 'kitchen' : 'store';
+}
+
+function stockBalanceKey(
+  line: Pick<PreparedTransferLine, 'batchNumber' | 'expiryDate' | 'itemId'>,
+  businessDate: Date,
+) {
+  return {
+    batchNumber: line.batchNumber,
+    businessDate: line.expiryDate ? null : businessDate,
+    expiryDate: line.expiryDate,
+    itemId: line.itemId,
+  };
+}
+
+function lineLabelForStock(
+  line: Pick<PreparedTransferLine, 'batchNumber' | 'expiryDate' | 'itemName'>,
+  businessDate: Date,
+): string {
+  if (line.batchNumber) {
+    return `Selected batch ${line.batchNumber}`;
+  }
+
+  return `Selected item ${line.itemName} for business date ${formatDateOnly(businessDate)}`;
 }
 
 function insufficientStockMessage(
-  line: Pick<PreparedTransferLine, 'batchNumber' | 'expiryDate'>,
+  line: Pick<PreparedTransferLine, 'batchNumber' | 'expiryDate' | 'itemName'>,
+  businessDate: Date,
   availableQty: number,
   requestedQty: number,
 ): string {
-  return `Selected batch ${line.batchNumber} has available stock ${formatQuantity(
+  return `${lineLabelForStock(line, businessDate)} has available stock ${formatQuantity(
     availableQty,
-  )}. Requested quantity ${formatQuantity(
-    requestedQty,
-  )}.`;
+  )}. Requested quantity ${formatQuantity(requestedQty)}.`;
+}
+
+function toNullableDate(value: string | undefined): Date | null {
+  return value ? toDateOnly(value) : null;
+}
+
+function toNullableText(value: string | undefined): string | null {
+  return optionalText(value) ?? null;
+}
+
+function assertSupportedSource(sourceType: InventoryLocationType): void {
+  if (sourceType !== InventoryLocationType.STORE && sourceType !== InventoryLocationType.KITCHEN) {
+    throw new BadRequestException('Source must be Store or Kitchen');
+  }
 }
 
 function toTransferResponse(transfer: TransferWithRelations) {
@@ -155,8 +208,16 @@ export class TransfersService {
             OR: [
               { transferNumber: { contains: query.search, mode: 'insensitive' } },
               { remarks: { contains: query.search, mode: 'insensitive' } },
-              { lines: { some: { item: { itemCode: { contains: query.search, mode: 'insensitive' } } } } },
-              { lines: { some: { item: { itemName: { contains: query.search, mode: 'insensitive' } } } } },
+              {
+                lines: {
+                  some: { item: { itemCode: { contains: query.search, mode: 'insensitive' } } },
+                },
+              },
+              {
+                lines: {
+                  some: { item: { itemName: { contains: query.search, mode: 'insensitive' } } },
+                },
+              },
             ],
           }
         : {}),
@@ -185,12 +246,22 @@ export class TransfersService {
   async create(dto: CreateTransferDto, context: ActorContext) {
     return this.transfers.transaction(async (tx) => {
       await this.assertTransferHeader(dto, tx);
-      const lines = await this.prepareLines(dto.items, dto.hospitalId, dto.sourceId, tx);
       const transferDate = toDate(dto.transferDate);
+      const businessDate = dto.businessDate
+        ? toDateOnly(dto.businessDate)
+        : toDateOnly(transferDate);
+      const lines = await this.prepareLines(
+        dto.items,
+        dto.hospitalId,
+        dto.sourceId,
+        dto.sourceType,
+        businessDate,
+        tx,
+      );
 
       const transfer = await this.transfers.create(
         {
-          businessDate: toDateOnly(transferDate),
+          businessDate,
           createdBy: context.actorId,
           destinationId: dto.destinationId,
           destinationType: dto.destinationType,
@@ -250,9 +321,11 @@ export class TransfersService {
       }
 
       for (const line of existing.lines) {
-        const balance = await this.findStoreBalanceForLine(
+        const balance = await this.findSourceBalanceForLine(
           existing.hospitalId,
           existing.sourceId,
+          existing.sourceType,
+          existing.businessDate,
           line,
           tx,
         );
@@ -266,7 +339,9 @@ export class TransfersService {
 
         if (!updatedBalance) {
           throw new BadRequestException(
-            `${line.item.itemName}: sent quantity exceeds current store available quantity`,
+            `${line.item.itemName}: sent quantity exceeds current ${sourceDisplayName(
+              existing.sourceType,
+            )} available quantity`,
           );
         }
 
@@ -279,16 +354,16 @@ export class TransfersService {
             expiryDate: line.expiryDate,
             hospitalId: existing.hospitalId,
             itemId: line.itemId,
-            itemType: ItemType.MRP,
+            itemType: line.item.itemType,
             locationId: existing.sourceId,
-            locationType: InventoryLocationType.STORE,
+            locationType: existing.sourceType,
             qtyIn: 0,
             qtyOut: sentQty,
             referenceId: existing.id,
             referenceType: StockReferenceType.TRANSFER,
             remarks: existing.remarks,
             transactionDateTime: new Date(),
-            transactionType: StockTransactionType.STORE_TO_RESTAURANT_OUT,
+            transactionType: dispatchTransactionType(existing.sourceType),
             updatedBy: context.actorId,
           },
           tx,
@@ -358,9 +433,7 @@ export class TransfersService {
   }
 
   private async assertTransferHeader(dto: CreateTransferDto, client: TransferClient) {
-    if (dto.sourceType !== InventoryLocationType.STORE) {
-      throw new BadRequestException('Only Store to Restaurant transfers are supported in Phase 3B');
-    }
+    assertSupportedSource(dto.sourceType);
 
     if (dto.destinationType !== InventoryLocationType.RESTAURANT) {
       throw new BadRequestException('Destination must be a restaurant');
@@ -370,9 +443,11 @@ export class TransfersService {
       throw new BadRequestException('Source and destination cannot be same');
     }
 
-    const [hospital, store, restaurant] = await Promise.all([
+    const [hospital, source, restaurant] = await Promise.all([
       this.transfers.findActiveHospital(dto.hospitalId, client),
-      this.transfers.findActiveStore(dto.sourceId, client),
+      dto.sourceType === InventoryLocationType.KITCHEN
+        ? this.transfers.findActiveKitchen(dto.sourceId, client)
+        : this.transfers.findActiveStore(dto.sourceId, client),
       this.transfers.findActiveRestaurant(dto.destinationId, client),
     ]);
 
@@ -380,16 +455,18 @@ export class TransfersService {
       throw new BadRequestException('Hospital not found or inactive');
     }
 
-    if (!store || !store.isActive) {
-      throw new BadRequestException('Store not found or inactive');
+    if (!source || !source.isActive) {
+      throw new BadRequestException(`${sourceDisplayName(dto.sourceType)} not found or inactive`);
     }
 
     if (!restaurant || !restaurant.isActive) {
       throw new BadRequestException('Restaurant not found or inactive');
     }
 
-    if (store.hospitalId !== dto.hospitalId) {
-      throw new BadRequestException('Store does not belong to selected hospital');
+    if (source.hospitalId !== dto.hospitalId) {
+      throw new BadRequestException(
+        `${sourceDisplayName(dto.sourceType)} does not belong to selected hospital`,
+      );
     }
 
     if (restaurant.hospitalId !== dto.hospitalId) {
@@ -410,22 +487,28 @@ export class TransfersService {
     return transfer;
   }
 
-  private async findStoreBalanceForLine(
+  private async findSourceBalanceForLine(
     hospitalId: string,
-    storeId: string,
+    sourceId: string,
+    sourceType: InventoryLocationType,
+    businessDate: Date,
     line: TransferWithRelations['lines'][number],
     client: TransferClient,
   ) {
-    const [balance] = await this.transfers.findActiveStoreStockBalances(
+    const lineStockKey = stockBalanceKey(
+      {
+        batchNumber: line.batchNumber,
+        expiryDate: line.expiryDate,
+        itemId: line.itemId,
+      },
+      businessDate,
+    );
+    const [balance] = await this.transfers.findActiveSourceStockBalances(
       hospitalId,
-      storeId,
-      [
-        {
-          batchNumber: line.batchNumber,
-          expiryDate: toDateOnly(line.expiryDate),
-          itemId: line.itemId,
-        },
-      ],
+      sourceId,
+      sourceType,
+      sourceItemType(sourceType),
+      [lineStockKey],
       client,
     );
 
@@ -435,7 +518,9 @@ export class TransfersService {
           {
             batchNumber: line.batchNumber,
             expiryDate: line.expiryDate,
+            itemName: line.item.itemName,
           },
+          businessDate,
           balance ? toNumber(balance.availableQty) : 0,
           toNumber(line.sentQty),
         ),
@@ -448,34 +533,51 @@ export class TransfersService {
   private async prepareLines(
     lines: CreateTransferLineDto[],
     hospitalId: string,
-    storeId: string,
+    sourceId: string,
+    sourceType: InventoryLocationType,
+    businessDate: Date,
     client: TransferClient,
   ): Promise<PreparedTransferLine[]> {
     const itemIds = [...new Set(lines.map((line) => line.itemId))];
     const items = await this.transfers.findItemsByIds(itemIds, client);
     const itemMap = new Map(items.map((item) => [item.id, item]));
+    const expectedItemType = sourceItemType(sourceType);
     const prepared = lines.map((line, index) => {
       const item = itemMap.get(line.itemId);
       const lineLabel = `Line ${index + 1}`;
-      const batchNumber = line.batchNumber.trim();
-      const expiryDate = toDateOnly(line.expiryDate);
+      const batchNumber = toNullableText(line.batchNumber);
+      const expiryDate = toNullableDate(line.expiryDate);
 
       if (!item) {
         throw new BadRequestException(`${lineLabel}: item not found or inactive`);
       }
 
-      if (item.itemType !== ItemType.MRP) {
-        throw new BadRequestException(`${lineLabel}: only MRP items can be transferred`);
+      if (item.itemType !== expectedItemType) {
+        throw new BadRequestException(
+          `${lineLabel}: ${sourceDisplayName(sourceType)} transfers support only ${expectedItemType} items`,
+        );
       }
 
-      if (!batchNumber) {
+      if (sourceType === InventoryLocationType.STORE && !batchNumber) {
         throw new BadRequestException(`${lineLabel}: batch number is required`);
+      }
+
+      if (sourceType === InventoryLocationType.STORE && !expiryDate) {
+        throw new BadRequestException(`${lineLabel}: expiry date is required`);
+      }
+
+      if (sourceType === InventoryLocationType.KITCHEN && (batchNumber || expiryDate)) {
+        throw new BadRequestException(
+          `${lineLabel}: kitchen READYMADE transfers must not include batch or expiry`,
+        );
       }
 
       return {
         batchNumber,
         expiryDate,
         itemId: line.itemId,
+        itemName: item.itemName,
+        itemType: item.itemType,
         remarks: optionalText(line.remarks),
         sentQty: line.sentQty,
       };
@@ -484,19 +586,17 @@ export class TransfersService {
     const lineByKey = new Map<string, PreparedTransferLine>();
 
     prepared.forEach((line) => {
-      const key = stockKey(line);
+      const key = stockKey(stockBalanceKey(line, businessDate));
       totals.set(key, (totals.get(key) ?? 0) + line.sentQty);
       lineByKey.set(key, line);
     });
 
-    const balances = await this.transfers.findActiveStoreStockBalances(
+    const balances = await this.transfers.findActiveSourceStockBalances(
       hospitalId,
-      storeId,
-      prepared.map((line) => ({
-        batchNumber: line.batchNumber,
-        expiryDate: line.expiryDate,
-        itemId: line.itemId,
-      })),
+      sourceId,
+      sourceType,
+      expectedItemType,
+      prepared.map((line) => stockBalanceKey(line, businessDate)),
       client,
     );
     const balanceMap = new Map(balances.map((balance) => [stockKey(balance), balance]));
@@ -507,7 +607,12 @@ export class TransfersService {
 
       if (!balance || toNumber(balance.availableQty) < requestedQty) {
         throw new BadRequestException(
-          insufficientStockMessage(line!, balance ? toNumber(balance.availableQty) : 0, requestedQty),
+          insufficientStockMessage(
+            line!,
+            businessDate,
+            balance ? toNumber(balance.availableQty) : 0,
+            requestedQty,
+          ),
         );
       }
     }

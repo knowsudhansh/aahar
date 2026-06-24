@@ -1,11 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  InventoryLocationType,
-  ItemType,
-  Prisma,
-  StockBalance,
-  Transfer,
-} from '@prisma/client';
+import { InventoryLocationType, ItemType, Prisma, StockBalance, Transfer } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 export const acknowledgementInclude = {
@@ -163,15 +157,19 @@ export class TransferAcknowledgementsRepository {
   async findStockBalance(
     {
       batchNumber,
+      businessDate,
       expiryDate,
       hospitalId,
+      itemType,
       itemId,
       locationId,
       locationType,
     }: {
-      batchNumber: string;
-      expiryDate: Date;
+      batchNumber: string | null;
+      businessDate: Date | null;
+      expiryDate: Date | null;
       hospitalId: string;
+      itemType: ItemType;
       itemId: string;
       locationId: string;
       locationType: InventoryLocationType;
@@ -181,11 +179,12 @@ export class TransferAcknowledgementsRepository {
     return client.stockBalance.findFirst({
       where: {
         batchNumber,
+        businessDate,
         deletedAt: null,
         expiryDate,
         hospitalId,
         itemId,
-        itemType: ItemType.MRP,
+        itemType,
         locationId,
         locationType,
       },
@@ -222,17 +221,21 @@ export class TransferAcknowledgementsRepository {
     {
       actorId,
       batchNumber,
+      businessDate,
       expiryDate,
       hospitalId,
+      itemType,
       itemId,
       locationId,
       locationType,
       quantity,
     }: {
       actorId?: string;
-      batchNumber: string;
-      expiryDate: Date;
+      batchNumber: string | null;
+      businessDate: Date | null;
+      expiryDate: Date | null;
       hospitalId: string;
+      itemType: ItemType;
       itemId: string;
       locationId: string;
       locationType: InventoryLocationType;
@@ -243,9 +246,11 @@ export class TransferAcknowledgementsRepository {
     const existing = await this.findStockBalance(
       {
         batchNumber,
+        businessDate,
         expiryDate,
         hospitalId,
         itemId,
+        itemType,
         locationId,
         locationType,
       },
@@ -271,11 +276,12 @@ export class TransferAcknowledgementsRepository {
       data: {
         availableQty: quantity,
         batchNumber,
+        businessDate,
         createdBy: actorId,
         expiryDate,
         hospitalId,
         itemId,
-        itemType: ItemType.MRP,
+        itemType,
         lastUpdatedOn: new Date(),
         locationId,
         locationType,

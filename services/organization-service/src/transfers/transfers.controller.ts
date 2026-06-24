@@ -21,7 +21,7 @@ export class TransfersController {
   constructor(private readonly transfers: TransfersService) {}
 
   @Get()
-  @Permissions('TRANSFER_VIEW')
+  @Permissions('TRANSFER_VIEW', 'KITCHEN_TRANSFER_VIEW')
   @ApiOperation({ summary: 'Get transfers' })
   @ApiOkResponse({ description: 'Transfers returned successfully.' })
   async list(@Query() query: ListTransfersQueryDto) {
@@ -29,7 +29,7 @@ export class TransfersController {
   }
 
   @Get(':id')
-  @Permissions('TRANSFER_VIEW')
+  @Permissions('TRANSFER_VIEW', 'KITCHEN_TRANSFER_VIEW')
   @ApiOperation({ summary: 'Get transfer by ID' })
   @ApiParam({ name: 'id' })
   @ApiOkResponse({ description: 'Transfer returned successfully.' })
@@ -38,9 +38,9 @@ export class TransfersController {
   }
 
   @Post()
-  @Permissions('TRANSFER_CREATE')
+  @Permissions('TRANSFER_CREATE', 'KITCHEN_TRANSFER_CREATE')
   @ApiBody({ type: CreateTransferDto })
-  @ApiOperation({ summary: 'Create draft Store to Restaurant transfer' })
+  @ApiOperation({ summary: 'Create draft Store/Kitchen to Restaurant transfer' })
   @ApiOkResponse({ description: 'Transfer created successfully.' })
   async create(
     @Body() body: CreateTransferDto,
@@ -58,8 +58,8 @@ export class TransfersController {
   }
 
   @Patch(':id/dispatch')
-  @Permissions('TRANSFER_DISPATCH')
-  @ApiOperation({ summary: 'Dispatch transfer and reduce source store stock' })
+  @Permissions('TRANSFER_DISPATCH', 'KITCHEN_TRANSFER_DISPATCH')
+  @ApiOperation({ summary: 'Dispatch transfer and reduce source stock' })
   @ApiParam({ name: 'id' })
   @ApiOkResponse({ description: 'Transfer dispatched successfully.' })
   async dispatch(

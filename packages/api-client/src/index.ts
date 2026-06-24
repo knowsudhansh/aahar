@@ -555,6 +555,8 @@ export type StockReferenceType =
 export type StockTransactionType =
   | 'GRN_IN'
   | 'KITCHEN_PRODUCTION_IN'
+  | 'KITCHEN_TRANSFER_OUT'
+  | 'RESTAURANT_TRANSFER_IN'
   | 'RESTAURANT_RECEIVE_IN'
   | 'STORE_TO_RESTAURANT_OUT'
   | 'TRANSFER_REJECTED_RETURN_IN';
@@ -786,6 +788,7 @@ export interface StockLedger {
 
 export interface StockBalanceListQuery extends ListQuery {
   batchNumber?: string;
+  businessDate?: string;
   expiryDate?: string;
   hospitalId?: string;
   itemId?: string;
@@ -811,9 +814,9 @@ export interface StockLedgerListQuery extends ListQuery {
 
 export interface TransferLine {
   acceptedQty: number;
-  batchNumber: string;
+  batchNumber: string | null;
   createdAt: string;
-  expiryDate: string;
+  expiryDate: string | null;
   id: string;
   item: ItemSummary;
   itemId: string;
@@ -845,14 +848,15 @@ export interface Transfer {
 }
 
 export interface TransferLineInput {
-  batchNumber: string;
-  expiryDate: string;
+  batchNumber?: string;
+  expiryDate?: string;
   itemId: string;
   remarks?: string;
   sentQty: number;
 }
 
 export interface TransferInput {
+  businessDate?: string;
   destinationId: string;
   destinationType: InventoryLocationType;
   hospitalId: string;
@@ -876,9 +880,9 @@ export interface TransferListQuery extends ListQuery {
 
 export interface TransferAcknowledgementLine {
   acceptedQty: number;
-  batchNumber: string;
+  batchNumber: string | null;
   createdAt: string;
-  expiryDate: string;
+  expiryDate: string | null;
   id: string;
   item: ItemSummary;
   itemId: string;

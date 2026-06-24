@@ -4,6 +4,7 @@ import {
   InventoryLocationType,
   Item,
   ItemType,
+  Kitchen,
   Prisma,
   Restaurant,
   StockBalance,
@@ -156,10 +157,26 @@ export class TransfersRepository {
     });
   }
 
-  async findActiveStoreStockBalances(
+  async findActiveKitchen(id: string, client: TransferClient): Promise<Kitchen | null> {
+    return client.kitchen.findFirst({
+      where: {
+        deletedAt: null,
+        id,
+      },
+    });
+  }
+
+  async findActiveSourceStockBalances(
     hospitalId: string,
-    storeId: string,
-    keys: Array<{ batchNumber: string; expiryDate: Date; itemId: string }>,
+    sourceId: string,
+    sourceType: InventoryLocationType,
+    itemType: ItemType,
+    keys: Array<{
+      batchNumber: string | null;
+      businessDate: Date | null;
+      expiryDate: Date | null;
+      itemId: string;
+    }>,
     client: TransferClient,
   ): Promise<StockBalance[]> {
     if (keys.length === 0) {
@@ -170,11 +187,12 @@ export class TransfersRepository {
       where: {
         deletedAt: null,
         hospitalId,
-        itemType: ItemType.MRP,
-        locationId: storeId,
-        locationType: InventoryLocationType.STORE,
+        itemType,
+        locationId: sourceId,
+        locationType: sourceType,
         OR: keys.map((key) => ({
           batchNumber: key.batchNumber,
+          businessDate: key.businessDate,
           expiryDate: key.expiryDate,
           itemId: key.itemId,
         })),

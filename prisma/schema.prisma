@@ -68,6 +68,8 @@ enum InventoryLocationType {
 enum StockTransactionType {
   GRN_IN
   KITCHEN_PRODUCTION_IN
+  KITCHEN_TRANSFER_OUT
+  RESTAURANT_TRANSFER_IN
   STORE_TO_RESTAURANT_OUT
   RESTAURANT_RECEIVE_IN
   TRANSFER_REJECTED_RETURN_IN
@@ -717,8 +719,8 @@ model TransferLine {
   id              String    @id @default(uuid()) @db.Uuid
   transferId      String    @map("transfer_id") @db.Uuid
   itemId          String    @map("item_id") @db.Uuid
-  batchNumber     String    @map("batch_number")
-  expiryDate      DateTime  @map("expiry_date") @db.Date
+  batchNumber     String?   @map("batch_number")
+  expiryDate      DateTime? @map("expiry_date") @db.Date
   sentQty         Decimal   @map("sent_qty") @db.Decimal(12, 3)
   acceptedQty     Decimal   @default(0) @map("accepted_qty") @db.Decimal(12, 3)
   rejectedQty     Decimal   @default(0) @map("rejected_qty") @db.Decimal(12, 3)
@@ -771,8 +773,8 @@ model TransferAcknowledgementLine {
   acknowledgementId String    @map("acknowledgement_id") @db.Uuid
   transferLineId    String    @map("transfer_line_id") @db.Uuid
   itemId            String    @map("item_id") @db.Uuid
-  batchNumber       String    @map("batch_number")
-  expiryDate        DateTime  @map("expiry_date") @db.Date
+  batchNumber       String?   @map("batch_number")
+  expiryDate        DateTime? @map("expiry_date") @db.Date
   sentQty           Decimal   @map("sent_qty") @db.Decimal(12, 3)
   acceptedQty       Decimal   @map("accepted_qty") @db.Decimal(12, 3)
   rejectedQty       Decimal   @default(0) @map("rejected_qty") @db.Decimal(12, 3)
