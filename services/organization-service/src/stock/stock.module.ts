@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { CommonModule } from '../common/common.module';
 import {
+  KitchenStockController,
+  KitchenStockLedgersController,
   RestaurantStockController,
   RestaurantStockLedgersController,
   StockBalancesController,
@@ -15,6 +17,8 @@ import { StockService } from './stock.service';
     StockBalancesController,
     RestaurantStockLedgersController,
     RestaurantStockController,
+    KitchenStockLedgersController,
+    KitchenStockController,
   ],
   imports: [CommonModule],
   providers: [StockRepository, StockService],

@@ -72,3 +72,41 @@ export class RestaurantStockController {
     };
   }
 }
+
+@ApiBearerAuth('access-token')
+@ApiTags('kitchen-stock-ledgers')
+@Controller('kitchen-stock-ledgers')
+export class KitchenStockLedgersController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('KITCHEN_STOCK_VIEW')
+  @ApiOperation({ summary: 'Get kitchen stock ledger entries' })
+  @ApiOkResponse({ description: 'Kitchen stock ledger entries returned successfully.' })
+  async list(@Query() query: ListStockLedgersQueryDto) {
+    return {
+      data: await this.stock.listKitchenLedgers(query),
+      message: 'Success',
+      success: true,
+    };
+  }
+}
+
+@ApiBearerAuth('access-token')
+@ApiTags('kitchen-stock')
+@Controller('kitchen-stock')
+export class KitchenStockController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('KITCHEN_STOCK_VIEW')
+  @ApiOperation({ summary: 'Get current kitchen stock balances' })
+  @ApiOkResponse({ description: 'Kitchen stock balances returned successfully.' })
+  async list(@Query() query: ListStockBalancesQueryDto) {
+    return {
+      data: await this.stock.listKitchenBalances(query),
+      message: 'Success',
+      success: true,
+    };
+  }
+}

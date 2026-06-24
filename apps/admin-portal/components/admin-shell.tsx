@@ -6,6 +6,7 @@ import {
   CalendarClock,
   ChefHat,
   ClipboardList,
+  CookingPot,
   CreditCard,
   Boxes,
   Hospital,
@@ -44,6 +45,8 @@ const navigation = [
   { href: '/inventory/store-stock', icon: Boxes, label: 'Store Stock' },
   { href: '/inventory/transfers', icon: ArrowRightLeft, label: 'Transfers' },
   { href: '/inventory/restaurant-stock', icon: Utensils, label: 'Restaurant Stock' },
+  { href: '/kitchen/productions', icon: CookingPot, label: 'Kitchen Production' },
+  { href: '/kitchen/stock', icon: ChefHat, label: 'Kitchen Stock' },
 ];
 
 function SidebarContent({ onNavigate }: Readonly<{ onNavigate?: () => void }>) {

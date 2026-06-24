@@ -78,6 +78,10 @@ function getBalanceStatus(balance: StockBalanceWithRelations): StockBalanceStatu
     return 'NEAR_EXPIRY';
   }
 
+  if (balance.locationType === InventoryLocationType.KITCHEN && availableQty <= 10) {
+    return 'LOW_STOCK';
+  }
+
   return 'AVAILABLE';
 }
 
@@ -117,6 +121,16 @@ function getStatusWhere(status: StockBalanceStatus | undefined): Prisma.StockBal
         gte: today,
         lte: nearExpiryCutoff,
       },
+    };
+  }
+
+  if (status === 'LOW_STOCK') {
+    return {
+      availableQty: {
+        gt: 0,
+        lte: 10,
+      },
+      locationType: InventoryLocationType.KITCHEN,
     };
   }
 
@@ -167,6 +181,22 @@ function getRestaurantLocationMap(
   );
 }
 
+function getKitchenLocationMap(
+  kitchens: Awaited<ReturnType<StockRepository['findKitchensByIds']>>,
+) {
+  return new Map(
+    kitchens.map((kitchen) => [
+      kitchen.id,
+      {
+        code: kitchen.kitchenCode,
+        id: kitchen.id,
+        name: kitchen.kitchenName,
+        type: InventoryLocationType.KITCHEN,
+      },
+    ]),
+  );
+}
+
 function getStoreLocationIds<T extends { locationId: string; locationType: InventoryLocationType }>(
   rows: T[],
 ) {
@@ -191,6 +221,18 @@ function getRestaurantLocationIds<
   ];
 }
 
+function getKitchenLocationIds<
+  T extends { locationId: string; locationType: InventoryLocationType },
+>(rows: T[]) {
+  return [
+    ...new Set(
+      rows
+        .filter((row) => row.locationType === InventoryLocationType.KITCHEN)
+        .map((row) => row.locationId),
+    ),
+  ];
+}
+
 @Injectable()
 export class StockService {
   constructor(private readonly stock: StockRepository) {}
@@ -202,6 +244,9 @@ export class StockService {
       : [];
     const restaurantIdsForSearch = query.search
       ? await this.stock.findRestaurantIdsBySearch(query.search)
+      : [];
+    const kitchenIdsForSearch = query.search
+      ? await this.stock.findKitchenIdsBySearch(query.search)
       : [];
     const where: Prisma.StockBalanceWhereInput = {
       deletedAt: null,
@@ -226,6 +271,7 @@ export class StockService {
               ...(restaurantIdsForSearch.length
                 ? [{ locationId: { in: restaurantIdsForSearch } }]
                 : []),
+              ...(kitchenIdsForSearch.length ? [{ locationId: { in: kitchenIdsForSearch } }] : []),
             ],
           }
         : {}),
@@ -242,13 +288,16 @@ export class StockService {
     ]);
     const stores = await this.stock.findStoresByIds(getStoreLocationIds(items));
     const restaurants = await this.stock.findRestaurantsByIds(getRestaurantLocationIds(items));
+    const kitchens = await this.stock.findKitchensByIds(getKitchenLocationIds(items));
     const storeLocationMap = getStoreLocationMap(stores);
     const restaurantLocationMap = getRestaurantLocationMap(restaurants);
+    const kitchenLocationMap = getKitchenLocationMap(kitchens);
 
     return {
       items: items.map((item) => ({
         availableQty: toNumber(item.availableQty),
         batchNumber: item.batchNumber,
+        businessDate: item.businessDate,
         createdAt: item.createdAt,
         deletedAt: item.deletedAt,
         expiryDate: item.expiryDate,
@@ -260,12 +309,13 @@ export class StockService {
         itemType: item.itemType,
         lastUpdatedOn: item.lastUpdatedOn,
         location: storeLocationMap.get(item.locationId) ??
-          restaurantLocationMap.get(item.locationId) ?? {
-          code: null,
-          id: item.locationId,
-          name: item.locationId,
-          type: item.locationType,
-        },
+          restaurantLocationMap.get(item.locationId) ??
+          kitchenLocationMap.get(item.locationId) ?? {
+            code: null,
+            id: item.locationId,
+            name: item.locationId,
+            type: item.locationType,
+          },
         locationId: item.locationId,
         locationType: item.locationType,
         reservedQty: toNumber(item.reservedQty),
@@ -283,6 +333,9 @@ export class StockService {
       : [];
     const restaurantIdsForSearch = query.search
       ? await this.stock.findRestaurantIdsBySearch(query.search)
+      : [];
+    const kitchenIdsForSearch = query.search
+      ? await this.stock.findKitchenIdsBySearch(query.search)
       : [];
     const where: Prisma.StockLedgerWhereInput = {
       deletedAt: null,
@@ -316,6 +369,7 @@ export class StockService {
               ...(restaurantIdsForSearch.length
                 ? [{ locationId: { in: restaurantIdsForSearch } }]
                 : []),
+              ...(kitchenIdsForSearch.length ? [{ locationId: { in: kitchenIdsForSearch } }] : []),
             ],
           }
         : {}),
@@ -332,8 +386,10 @@ export class StockService {
     ]);
     const stores = await this.stock.findStoresByIds(getStoreLocationIds(items));
     const restaurants = await this.stock.findRestaurantsByIds(getRestaurantLocationIds(items));
+    const kitchens = await this.stock.findKitchensByIds(getKitchenLocationIds(items));
     const storeLocationMap = getStoreLocationMap(stores);
     const restaurantLocationMap = getRestaurantLocationMap(restaurants);
+    const kitchenLocationMap = getKitchenLocationMap(kitchens);
 
     return {
       items: items.map((item: StockLedgerWithRelations) => ({
@@ -350,12 +406,13 @@ export class StockService {
         itemId: item.itemId,
         itemType: item.itemType,
         location: storeLocationMap.get(item.locationId) ??
-          restaurantLocationMap.get(item.locationId) ?? {
-          code: null,
-          id: item.locationId,
-          name: item.locationId,
-          type: item.locationType,
-        },
+          restaurantLocationMap.get(item.locationId) ??
+          kitchenLocationMap.get(item.locationId) ?? {
+            code: null,
+            id: item.locationId,
+            name: item.locationId,
+            type: item.locationType,
+          },
         locationId: item.locationId,
         locationType: item.locationType,
         qtyIn: toNumber(item.qtyIn),
@@ -382,6 +439,20 @@ export class StockService {
     return this.listLedgers({
       ...query,
       locationType: InventoryLocationType.RESTAURANT,
+    });
+  }
+
+  async listKitchenBalances(query: ListStockBalancesQueryDto) {
+    return this.listBalances({
+      ...query,
+      locationType: InventoryLocationType.KITCHEN,
+    });
+  }
+
+  async listKitchenLedgers(query: ListStockLedgersQueryDto) {
+    return this.listLedgers({
+      ...query,
+      locationType: InventoryLocationType.KITCHEN,
     });
   }
 }

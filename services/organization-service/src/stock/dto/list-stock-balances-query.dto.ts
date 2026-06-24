@@ -7,6 +7,7 @@ export const stockBalanceStatuses = [
   'AVAILABLE',
   'NEAR_EXPIRY',
   'EXPIRED',
+  'LOW_STOCK',
   'OUT_OF_STOCK',
 ] as const;
 export const stockBalanceSortFields = ['availableQty', 'expiryDate', 'lastUpdatedOn'] as const;

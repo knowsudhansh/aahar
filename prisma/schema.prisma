@@ -39,6 +39,12 @@ enum GrnStatus {
   CANCELLED
 }
 
+enum KitchenProductionStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
 enum TransferStatus {
   DRAFT
   PENDING_ACKNOWLEDGEMENT
@@ -61,6 +67,7 @@ enum InventoryLocationType {
 
 enum StockTransactionType {
   GRN_IN
+  KITCHEN_PRODUCTION_IN
   STORE_TO_RESTAURANT_OUT
   RESTAURANT_RECEIVE_IN
   TRANSFER_REJECTED_RETURN_IN
@@ -68,6 +75,7 @@ enum StockTransactionType {
 
 enum StockReferenceType {
   GRN
+  KITCHEN_PRODUCTION
   TRANSFER
   TRANSFER_ACKNOWLEDGEMENT
 }
@@ -86,9 +94,10 @@ model User {
   updatedBy    String?    @map("updated_by") @db.Uuid
   deletedAt    DateTime?  @map("deleted_at")
 
-  auditLogs AuditLog[]
-  hospital  Hospital?  @relation(fields: [hospitalId], references: [id])
-  roles     UserRole[]
+  auditLogs                AuditLog[]
+  hospital                 Hospital?           @relation(fields: [hospitalId], references: [id])
+  kitchenProductionsAsChef KitchenProduction[] @relation("KitchenProductionChef")
+  roles                    UserRole[]
 
   @@index([hospitalId])
   @@index([deletedAt])
@@ -189,6 +198,7 @@ model Hospital {
   auditLogs                AuditLog[]
   counters                 Counter[]
   grns                     Grn[]
+  kitchenProductions       KitchenProduction[]
   kitchens                 Kitchen[]
   locations                Location[]
   restaurants              Restaurant[]
@@ -275,9 +285,10 @@ model Kitchen {
   updatedBy   String?   @map("updated_by") @db.Uuid
   deletedAt   DateTime? @map("deleted_at")
 
-  hospital     Hospital      @relation(fields: [hospitalId], references: [id])
-  location     Location?     @relation(fields: [locationId], references: [id])
+  hospital     Hospital            @relation(fields: [hospitalId], references: [id])
+  location     Location?           @relation(fields: [locationId], references: [id])
   kitchenItems KitchenItem[]
+  productions  KitchenProduction[]
   restaurants  Restaurant[]
 
   @@unique([hospitalId, kitchenCode])
@@ -404,6 +415,7 @@ model Item {
   grnBatches                   GrnBatch[]
   grnLines                     GrnLine[]
   kitchenItems                 KitchenItem[]
+  kitchenProductionLines       KitchenProductionLine[]
   restaurantMenus              RestaurantMenu[]
   stockBalances                StockBalance[]
   stockLedgers                 StockLedger[]
@@ -615,6 +627,60 @@ model GrnBatch {
   @@map("grn_batches")
 }
 
+model KitchenProduction {
+  id               String                  @id @default(uuid()) @db.Uuid
+  productionNumber String                  @unique @default(dbgenerated("'PRD' || lpad((nextval('kitchen_production_number_seq'::regclass))::text, 4, '0'::text)")) @map("production_number")
+  hospitalId       String                  @map("hospital_id") @db.Uuid
+  kitchenId        String                  @map("kitchen_id") @db.Uuid
+  productionDate   DateTime                @map("production_date")
+  businessDate     DateTime                @map("business_date") @db.Date
+  chefUserId       String?                 @map("chef_user_id") @db.Uuid
+  status           KitchenProductionStatus @default(DRAFT)
+  remarks          String?
+  createdAt        DateTime                @default(now()) @map("created_at")
+  createdBy        String?                 @map("created_by") @db.Uuid
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  updatedBy        String?                 @map("updated_by") @db.Uuid
+  deletedAt        DateTime?               @map("deleted_at")
+
+  chef     User?                   @relation("KitchenProductionChef", fields: [chefUserId], references: [id])
+  hospital Hospital                @relation(fields: [hospitalId], references: [id])
+  kitchen  Kitchen                 @relation(fields: [kitchenId], references: [id])
+  lines    KitchenProductionLine[]
+
+  @@index([businessDate])
+  @@index([chefUserId])
+  @@index([deletedAt])
+  @@index([hospitalId])
+  @@index([kitchenId])
+  @@index([productionDate])
+  @@index([status])
+  @@map("kitchen_productions")
+}
+
+model KitchenProductionLine {
+  id           String    @id @default(uuid()) @db.Uuid
+  productionId String    @map("production_id") @db.Uuid
+  itemId       String    @map("item_id") @db.Uuid
+  producedQty  Decimal   @map("produced_qty") @db.Decimal(12, 3)
+  wastageQty   Decimal   @default(0) @map("wastage_qty") @db.Decimal(12, 3)
+  acceptedQty  Decimal   @map("accepted_qty") @db.Decimal(12, 3)
+  remarks      String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  updatedBy    String?   @map("updated_by") @db.Uuid
+  deletedAt    DateTime? @map("deleted_at")
+
+  item       Item              @relation(fields: [itemId], references: [id])
+  production KitchenProduction @relation(fields: [productionId], references: [id])
+
+  @@index([deletedAt])
+  @@index([itemId])
+  @@index([productionId])
+  @@map("kitchen_production_lines")
+}
+
 model Transfer {
   id              String                @id @default(uuid()) @db.Uuid
   transferNumber  String                @unique @default(dbgenerated("'TRF' || lpad((nextval('transfer_number_seq'::regclass))::text, 4, '0'::text)")) @map("transfer_number")
@@ -780,6 +846,7 @@ model StockBalance {
   itemType      ItemType              @map("item_type")
   batchNumber   String?               @map("batch_number")
   expiryDate    DateTime?             @map("expiry_date") @db.Date
+  businessDate  DateTime?             @map("business_date") @db.Date
   availableQty  Decimal               @default(0) @map("available_qty") @db.Decimal(12, 3)
   reservedQty   Decimal               @default(0) @map("reserved_qty") @db.Decimal(12, 3)
   lastUpdatedOn DateTime              @default(now()) @map("last_updated_on")
@@ -792,8 +859,9 @@ model StockBalance {
   hospital Hospital @relation(fields: [hospitalId], references: [id])
   item     Item     @relation(fields: [itemId], references: [id])
 
-  @@unique([hospitalId, locationType, locationId, itemId, batchNumber, expiryDate], map: "stock_balances_unique_batch_key")
+  @@unique([hospitalId, locationType, locationId, itemId, batchNumber, expiryDate, businessDate], map: "stock_balances_unique_stock_key")
   @@index([batchNumber])
+  @@index([businessDate])
   @@index([deletedAt])
   @@index([expiryDate])
   @@index([hospitalId])

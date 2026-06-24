@@ -547,15 +547,26 @@ export type GrnStatus =
   | 'UNDER_VERIFICATION';
 
 export type InventoryLocationType = 'COUNTER' | 'KITCHEN' | 'RESTAURANT' | 'STORE';
-export type StockReferenceType = 'GRN' | 'TRANSFER' | 'TRANSFER_ACKNOWLEDGEMENT';
+export type StockReferenceType =
+  | 'GRN'
+  | 'KITCHEN_PRODUCTION'
+  | 'TRANSFER'
+  | 'TRANSFER_ACKNOWLEDGEMENT';
 export type StockTransactionType =
   | 'GRN_IN'
+  | 'KITCHEN_PRODUCTION_IN'
   | 'RESTAURANT_RECEIVE_IN'
   | 'STORE_TO_RESTAURANT_OUT'
   | 'TRANSFER_REJECTED_RETURN_IN';
-export type StockBalanceStatus = 'AVAILABLE' | 'EXPIRED' | 'NEAR_EXPIRY' | 'OUT_OF_STOCK';
+export type StockBalanceStatus =
+  | 'AVAILABLE'
+  | 'EXPIRED'
+  | 'LOW_STOCK'
+  | 'NEAR_EXPIRY'
+  | 'OUT_OF_STOCK';
 export type TransferStatus = 'ACKNOWLEDGED' | 'CANCELLED' | 'DRAFT' | 'PENDING_ACKNOWLEDGEMENT';
 export type TransferAcknowledgementStatus = 'ACCEPTED_FULL' | 'ACCEPTED_PARTIAL' | 'REJECTED_FULL';
+export type KitchenProductionStatus = 'CANCELLED' | 'DRAFT' | 'POSTED';
 
 export interface GrnBatch {
   acceptedQty: number;
@@ -659,6 +670,7 @@ export interface StockLocationSummary {
 export interface StockBalance {
   availableQty: number;
   batchNumber: string | null;
+  businessDate: string | null;
   createdAt: string;
   deletedAt: string | null;
   expiryDate: string | null;
@@ -675,6 +687,75 @@ export interface StockBalance {
   reservedQty: number;
   status: StockBalanceStatus;
   updatedAt: string;
+}
+
+export interface UserSummary {
+  email: string | null;
+  employeeCode: string | null;
+  id: string;
+  mobile: string | null;
+  name: string;
+  status: string;
+}
+
+export interface KitchenProductionLine {
+  acceptedQty: number;
+  createdAt: string;
+  deletedAt: string | null;
+  id: string;
+  item: ItemSummary;
+  itemId: string;
+  producedQty: number;
+  productionId: string;
+  remarks: string | null;
+  updatedAt: string;
+  wastageQty: number;
+}
+
+export interface KitchenProduction {
+  businessDate: string;
+  chef: UserSummary | null;
+  chefUserId: string | null;
+  createdAt: string;
+  deletedAt: string | null;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  kitchen: Pick<Kitchen, 'hospitalId' | 'id' | 'isActive' | 'kitchenCode' | 'kitchenName'>;
+  kitchenId: string;
+  lines: KitchenProductionLine[];
+  productionDate: string;
+  productionNumber: string;
+  remarks: string | null;
+  status: KitchenProductionStatus;
+  updatedAt: string;
+}
+
+export interface KitchenProductionLineInput {
+  acceptedQty?: number;
+  itemId: string;
+  producedQty: number;
+  remarks?: string;
+  wastageQty?: number;
+}
+
+export interface KitchenProductionInput {
+  businessDate: string;
+  chefUserId?: string;
+  hospitalId: string;
+  items: KitchenProductionLineInput[];
+  kitchenId: string;
+  productionDate: string;
+  remarks?: string;
+}
+
+export interface KitchenProductionListQuery extends ListQuery {
+  chefUserId?: string;
+  fromDate?: string;
+  hospitalId?: string;
+  kitchenId?: string;
+  status?: KitchenProductionStatus;
+  toDate?: string;
 }
 
 export interface StockLedger {
@@ -1049,6 +1130,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'POST',
       });
     },
+    createKitchenProduction(body: KitchenProductionInput) {
+      return client.request<ApiResponse<KitchenProduction>>('/kitchen-productions', {
+        body,
+        method: 'POST',
+      });
+    },
     createLocation(body: LocationInput) {
       return client.request<ApiResponse<Location>>('/locations', {
         body,
@@ -1127,6 +1214,11 @@ export function createOrganizationApi(options: ApiClientOptions) {
     deleteKitchen(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/kitchens/${id}`, { method: 'DELETE' });
     },
+    deleteKitchenProduction(id: string) {
+      return client.request<ApiResponse<{ id: string }>>(`/kitchen-productions/${id}`, {
+        method: 'DELETE',
+      });
+    },
     deleteLocation(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/locations/${id}`, { method: 'DELETE' });
     },
@@ -1177,6 +1269,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
     getKitchen(id: string) {
       return client.request<ApiResponse<Kitchen>>(`/kitchens/${id}`);
     },
+    getKitchenProduction(id: string) {
+      return client.request<ApiResponse<KitchenProduction>>(`/kitchen-productions/${id}`);
+    },
     getLocation(id: string) {
       return client.request<ApiResponse<Location>>(`/locations/${id}`);
     },
@@ -1226,6 +1321,19 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     listKitchens(query?: KitchenListQuery) {
       return client.request<ApiResponse<ApiList<Kitchen>>>('/kitchens', { query });
+    },
+    listKitchenProductions(query?: KitchenProductionListQuery) {
+      return client.request<ApiResponse<ApiList<KitchenProduction>>>('/kitchen-productions', {
+        query,
+      });
+    },
+    listKitchenStock(query?: StockBalanceListQuery) {
+      return client.request<ApiResponse<ApiList<StockBalance>>>('/kitchen-stock', { query });
+    },
+    listKitchenStockLedgers(query?: StockLedgerListQuery) {
+      return client.request<ApiResponse<ApiList<StockLedger>>>('/kitchen-stock-ledgers', {
+        query,
+      });
     },
     listLocations(query?: LocationListQuery) {
       return client.request<ApiResponse<ApiList<Location>>>('/locations', { query });
@@ -1316,6 +1424,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'PUT',
       });
     },
+    updateKitchenProduction(id: string, body: Partial<KitchenProductionInput>) {
+      return client.request<ApiResponse<KitchenProduction>>(`/kitchen-productions/${id}`, {
+        body,
+        method: 'PUT',
+      });
+    },
     updateLocation(id: string, body: Partial<LocationInput>) {
       return client.request<ApiResponse<Location>>(`/locations/${id}`, {
         body,
@@ -1357,6 +1471,11 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'PATCH',
       });
     },
+    cancelKitchenProduction(id: string) {
+      return client.request<ApiResponse<KitchenProduction>>(`/kitchen-productions/${id}/cancel`, {
+        method: 'PATCH',
+      });
+    },
     cancelTransfer(id: string) {
       return client.request<ApiResponse<Transfer>>(`/transfers/${id}/cancel`, {
         method: 'PATCH',
@@ -1369,6 +1488,11 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     postGrnToStock(id: string) {
       return client.request<ApiResponse<Grn>>(`/grns/${id}/post-to-stock`, {
+        method: 'PATCH',
+      });
+    },
+    postKitchenProduction(id: string) {
+      return client.request<ApiResponse<KitchenProduction>>(`/kitchen-productions/${id}/post`, {
         method: 'PATCH',
       });
     },

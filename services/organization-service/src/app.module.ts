@@ -23,6 +23,7 @@ import { HospitalsModule } from './hospitals/hospitals.module';
 import { ItemCategoriesModule } from './item-categories/item-categories.module';
 import { ItemsModule } from './items/items.module';
 import { KitchenItemsModule } from './kitchen-items/kitchen-items.module';
+import { KitchenProductionsModule } from './kitchen-productions/kitchen-productions.module';
 import { KitchensModule } from './kitchens/kitchens.module';
 import { LocationsModule } from './locations/locations.module';
 import { RestaurantMenusModule } from './restaurant-menus/restaurant-menus.module';
@@ -64,6 +65,7 @@ import { TransfersModule } from './transfers/transfers.module';
     ItemCategoriesModule,
     ItemsModule,
     KitchenItemsModule,
+    KitchenProductionsModule,
     KitchensModule,
     LocationsModule,
     RestaurantMenusModule,

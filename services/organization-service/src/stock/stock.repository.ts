@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, Restaurant, Store } from '@prisma/client';
+import { Kitchen, Prisma, Restaurant, Store } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 
 export const stockLedgerInclude = {
@@ -109,6 +109,37 @@ export class StockRepository {
     });
 
     return restaurants.map((restaurant) => restaurant.id);
+  }
+
+  async findKitchenIdsBySearch(search: string): Promise<string[]> {
+    const kitchens = await this.prisma.kitchen.findMany({
+      select: {
+        id: true,
+      },
+      where: {
+        deletedAt: null,
+        OR: [
+          { kitchenCode: { contains: search, mode: 'insensitive' } },
+          { kitchenName: { contains: search, mode: 'insensitive' } },
+        ],
+      },
+    });
+
+    return kitchens.map((kitchen) => kitchen.id);
+  }
+
+  async findKitchensByIds(ids: string[]): Promise<Kitchen[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    return this.prisma.kitchen.findMany({
+      where: {
+        id: {
+          in: ids,
+        },
+      },
+    });
   }
 
   async findRestaurantsByIds(ids: string[]): Promise<Restaurant[]> {
