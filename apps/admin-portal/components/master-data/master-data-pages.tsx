@@ -37,6 +37,11 @@ import type {
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
+import {
+  invalidateEmployeeQueries,
+  invalidateItemCategoryQueries,
+  invalidateItemQueries,
+} from '@/lib/query-invalidation';
 
 const listLimit = 10;
 const skeletonRows = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
@@ -705,8 +710,7 @@ export function ItemCategoriesPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['item-categories'] });
-      void queryClient.invalidateQueries({ queryKey: ['item-category-options'] });
+      invalidateItemCategoryQueries(queryClient);
       showToast({
         title: editingCategory ? 'Category updated' : 'Category created',
         variant: 'success',
@@ -729,8 +733,7 @@ export function ItemCategoriesPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['item-categories'] });
-      void queryClient.invalidateQueries({ queryKey: ['item-category-options'] });
+      invalidateItemCategoryQueries(queryClient);
       showToast({
         title: 'Category deleted',
         variant: 'success',
@@ -964,8 +967,7 @@ export function ItemCategoryCreatePageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['item-categories'] });
-      void queryClient.invalidateQueries({ queryKey: ['item-category-options'] });
+      invalidateItemCategoryQueries(queryClient);
       showToast({
         title: 'Category created',
         variant: 'success',
@@ -1082,7 +1084,7 @@ export function ItemsPageClient() {
       });
     },
     onSuccess(response) {
-      void queryClient.invalidateQueries({ queryKey: ['items'] });
+      invalidateItemQueries(queryClient);
       showToast({
         description: editingItem ? undefined : `Generated item code: ${response.data.itemCode}`,
         title: editingItem ? 'Item updated' : 'Item created',
@@ -1103,7 +1105,7 @@ export function ItemsPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['items'] });
+      invalidateItemQueries(queryClient);
       showToast({
         title: 'Item deleted',
         variant: 'success',
@@ -1402,7 +1404,7 @@ export function ItemCreatePageClient() {
       });
     },
     onSuccess(response) {
-      void queryClient.invalidateQueries({ queryKey: ['items'] });
+      invalidateItemQueries(queryClient);
       showToast({
         description: `Generated item code: ${response.data.itemCode}`,
         title: 'Item created',
@@ -1531,7 +1533,7 @@ export function EmployeesPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['employees'] });
+      invalidateEmployeeQueries(queryClient);
       showToast({
         title: editingEmployee ? 'Employee updated' : 'Employee created',
         variant: 'success',
@@ -1551,7 +1553,7 @@ export function EmployeesPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['employees'] });
+      invalidateEmployeeQueries(queryClient);
       showToast({
         title: 'Employee deleted',
         variant: 'success',
@@ -1808,7 +1810,7 @@ export function EmployeeCreatePageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['employees'] });
+      invalidateEmployeeQueries(queryClient);
       showToast({
         title: 'Employee created',
         variant: 'success',

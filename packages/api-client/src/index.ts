@@ -23,6 +23,7 @@ export interface ApiList<TItem> {
 export interface ApiErrorBody {
   errors?: unknown[];
   message?: string;
+  requestId?: string;
   success?: false;
 }
 
@@ -30,11 +31,16 @@ export interface ApiClientOptions {
   baseUrl: string;
   fetcher?: typeof fetch;
   getAccessToken?: () => string | null | undefined;
+  onUnauthorized?: () => Promise<void> | void;
+  refreshAccessToken?: () => Promise<string | null | undefined>;
+  timeoutMs?: number;
 }
 
 export interface ApiRequestInit extends Omit<RequestInit, 'body'> {
   body?: BodyInit | object | null;
   query?: QueryParams;
+  skipAuthRefresh?: boolean;
+  timeoutMs?: number;
 }
 
 export interface ApiClient {
@@ -42,15 +48,26 @@ export interface ApiClient {
 }
 
 export class ApiClientError extends Error {
+  readonly category: string;
   readonly errors?: unknown[];
   readonly payload?: unknown;
+  readonly requestId?: string;
   readonly status: number;
 
-  constructor(status: number, message: string, payload?: unknown, errors?: unknown[]) {
+  constructor(
+    status: number,
+    message: string,
+    payload?: unknown,
+    errors?: unknown[],
+    requestId?: string,
+    category = 'UNKNOWN_ERROR',
+  ) {
     super(message);
     this.name = 'ApiClientError';
+    this.category = category;
     this.errors = errors;
     this.payload = payload;
+    this.requestId = requestId;
     this.status = status;
   }
 }
@@ -974,6 +991,120 @@ function getErrorBody(payload: unknown): ApiErrorBody | undefined {
   return payload;
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError';
+}
+
+function isLikelyTechnicalMessage(message: string): boolean {
+  const normalizedMessage = message.toLowerCase();
+
+  return [
+    'failed to fetch',
+    'internal server error',
+    'jwt expired',
+    'jwt malformed',
+    'invalid token',
+    'prisma',
+    'nestjs',
+    'stack',
+    'exception',
+  ].some((technicalText) => normalizedMessage.includes(technicalText));
+}
+
+function messageWithRequestId(message: string, requestId?: string): string {
+  return requestId ? `${message} Request ID: ${requestId}` : message;
+}
+
+function getErrorCategory(status: number): string {
+  if (status === 0) {
+    return 'NETWORK_ERROR';
+  }
+
+  if (status === 400) {
+    return 'VALIDATION_ERROR';
+  }
+
+  if (status === 401) {
+    return 'AUTHENTICATION_ERROR';
+  }
+
+  if (status === 403) {
+    return 'AUTHORIZATION_ERROR';
+  }
+
+  if (status === 404) {
+    return 'NOT_FOUND_ERROR';
+  }
+
+  if (status === 409) {
+    return 'DUPLICATE_ERROR';
+  }
+
+  if (status === 422) {
+    return 'BUSINESS_RULE_ERROR';
+  }
+
+  if (status === 429) {
+    return 'RATE_LIMIT_ERROR';
+  }
+
+  if (status >= 500) {
+    return 'SERVER_ERROR';
+  }
+
+  return 'UNKNOWN_ERROR';
+}
+
+function friendlyErrorMessage(status: number, message?: string, requestId?: string): string {
+  const backendMessage = message?.trim();
+  const canUseBackendMessage = backendMessage && !isLikelyTechnicalMessage(backendMessage);
+
+  if (status === 0) {
+    return 'Unable to connect to AAHAR services. Please check your network and try again.';
+  }
+
+  if (status === 400) {
+    return canUseBackendMessage
+      ? backendMessage
+      : 'Unable to save. Please check the required fields.';
+  }
+
+  if (status === 401) {
+    return 'Your session has expired. Please login again.';
+  }
+
+  if (status === 403) {
+    return 'You do not have permission to perform this action.';
+  }
+
+  if (status === 404) {
+    return canUseBackendMessage ? backendMessage : 'The requested record was not found.';
+  }
+
+  if (status === 409) {
+    return canUseBackendMessage ? backendMessage : 'This record already exists.';
+  }
+
+  if (status === 422) {
+    return canUseBackendMessage
+      ? backendMessage
+      : 'This action cannot be completed because it violates a business rule.';
+  }
+
+  if (status === 429) {
+    return 'Too many attempts. Please try again after some time.';
+  }
+
+  if (status >= 500) {
+    return messageWithRequestId(
+      'Something went wrong. Please try again. If the issue continues, contact support.',
+      requestId,
+    );
+  }
+
+  return canUseBackendMessage ? backendMessage : 'Something went wrong. Please try again.';
+}
+
 function isJsonBody(body: unknown): body is Record<string, unknown> | unknown[] {
   if (!body || typeof body !== 'object') {
     return false;
@@ -1006,44 +1137,122 @@ export function createApiClient({
   baseUrl,
   fetcher = fetch,
   getAccessToken,
+  onUnauthorized,
+  refreshAccessToken,
+  timeoutMs = 20_000,
 }: ApiClientOptions): ApiClient {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
 
   return {
     async request<TResponse>(path: string, init: ApiRequestInit = {}) {
-      const { body, headers: initHeaders, query, ...requestInit } = init;
+      const { body, headers: initHeaders, query, skipAuthRefresh, timeoutMs: requestTimeoutMs, ...requestInit } = init;
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
       const requestPath = appendQuery(normalizedPath, query);
-      const headers = new Headers(initHeaders);
-      const token = getAccessToken?.();
-      let requestBody: BodyInit | null | undefined;
+      const url = `${normalizedBaseUrl}${requestPath}`;
 
-      if (token && !headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
-      }
+      const buildRequest = (accessToken?: string | null): RequestInit => {
+        const headers = new Headers(initHeaders);
+        const token = accessToken ?? getAccessToken?.();
+        let requestBody: BodyInit | null | undefined;
 
-      if (isJsonBody(body)) {
-        requestBody = JSON.stringify(body);
-
-        if (!headers.has('Content-Type')) {
-          headers.set('Content-Type', 'application/json');
+        if (token) {
+          headers.set('Authorization', `Bearer ${token}`);
         }
-      } else {
-        requestBody = body as BodyInit | null | undefined;
-      }
 
-      const response = await fetcher(`${normalizedBaseUrl}${requestPath}`, {
-        ...requestInit,
-        body: requestBody,
-        headers,
-      });
-      const payload = await readPayload(response);
+        if (isJsonBody(body)) {
+          requestBody = JSON.stringify(body);
+
+          if (!headers.has('Content-Type')) {
+            headers.set('Content-Type', 'application/json');
+          }
+        } else {
+          requestBody = body as BodyInit | null | undefined;
+        }
+
+        return {
+          ...requestInit,
+          body: requestBody,
+          headers,
+        };
+      };
+
+      const execute = async (accessToken?: string | null) => {
+        const controller =
+          typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+        const timeout = requestTimeoutMs ?? timeoutMs;
+        const timeoutId = controller
+          ? globalThis.setTimeout(() => controller.abort(), timeout)
+          : undefined;
+
+        try {
+          return await fetcher(url, {
+            ...buildRequest(accessToken),
+            signal: controller?.signal ?? requestInit.signal,
+          });
+        } catch (error) {
+          if (isAbortError(error)) {
+            throw new ApiClientError(
+              0,
+              'Unable to connect to AAHAR services. Please check your network and try again.',
+              undefined,
+              undefined,
+              undefined,
+              'NETWORK_ERROR',
+            );
+          }
+
+          throw new ApiClientError(
+            0,
+            'Unable to connect to AAHAR services. Please check your network and try again.',
+            error,
+            undefined,
+            undefined,
+            'NETWORK_ERROR',
+          );
+        } finally {
+          if (timeoutId) {
+            globalThis.clearTimeout(timeoutId);
+          }
+        }
+      };
+
+      let response = await execute();
+      let payload = await readPayload(response);
+
+      if (response.status === 401 && refreshAccessToken && !skipAuthRefresh) {
+        try {
+          const refreshedAccessToken = await refreshAccessToken();
+
+          if (refreshedAccessToken) {
+            response = await execute(refreshedAccessToken);
+            payload = await readPayload(response);
+          }
+        } catch {
+          await onUnauthorized?.();
+        }
+
+        if (response.status === 401) {
+          await onUnauthorized?.();
+        }
+      }
 
       if (!response.ok) {
         const errorBody = getErrorBody(payload);
-        const message = errorBody?.message ?? `Request failed with status ${response.status}`;
+        const requestId =
+          errorBody?.requestId ??
+          response.headers.get('x-request-id') ??
+          response.headers.get('x-correlation-id') ??
+          undefined;
+        const message = friendlyErrorMessage(response.status, errorBody?.message, requestId);
 
-        throw new ApiClientError(response.status, message, payload, errorBody?.errors);
+        throw new ApiClientError(
+          response.status,
+          message,
+          payload,
+          errorBody?.errors,
+          requestId,
+          getErrorCategory(response.status),
+        );
       }
 
       return payload as TResponse;

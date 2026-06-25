@@ -4,8 +4,10 @@ import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  ArrowRightLeft,
   Building2,
   ChefHat,
+  ClipboardList,
   CreditCard,
   Eye,
   Hospital,
@@ -13,22 +15,19 @@ import {
   MapPin,
   Pencil,
   Plus,
+  PackageOpen,
   RefreshCw,
   Search,
   Store,
   Trash2,
   Utensils,
-  type LucideIcon
+  UsersRound,
+  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import {
-  useForm,
-  type FieldValues,
-  type Path,
-  type UseFormReturn
-} from 'react-hook-form';
+import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { z, type ZodError } from 'zod';
 import type {
   ApiList,
@@ -46,8 +45,17 @@ import type {
   RestaurantInput,
   SortOrder,
   Store as StoreRecord,
-  StoreInput
+  StoreInput,
 } from '@aahar/api-client';
+import {
+  AppPageHeader,
+  ChartCard,
+  EmptyState,
+  KpiCard,
+  LoadingSkeleton,
+  MetricTile,
+  StatusBadge as DesignStatusBadge,
+} from '@/components/design-system';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -71,7 +79,7 @@ const hospitalSchema = z.object({
   hospitalCode: z.string().trim().min(1, 'Hospital code is required.').max(50),
   hospitalName: z.string().trim().min(1, 'Hospital name is required.').max(150),
   isActive: z.boolean(),
-  state: optionalText(80)
+  state: optionalText(80),
 });
 
 const locationSchema = z.object({
@@ -81,7 +89,7 @@ const locationSchema = z.object({
   floor: optionalText(50),
   hospitalId: z.string().uuid('Select a hospital.'),
   isActive: z.boolean(),
-  locationName: z.string().trim().min(1, 'Location name is required.').max(150)
+  locationName: z.string().trim().min(1, 'Location name is required.').max(150),
 });
 
 const storeSchema = z.object({
@@ -90,7 +98,7 @@ const storeSchema = z.object({
   isActive: z.boolean(),
   storeCode: z.string().trim().min(1, 'Store code is required.').max(50),
   storeName: z.string().trim().min(1, 'Store name is required.').max(150),
-  storeType: optionalText(80)
+  storeType: optionalText(80),
 });
 
 const kitchenSchema = z.object({
@@ -99,7 +107,7 @@ const kitchenSchema = z.object({
   isActive: z.boolean(),
   kitchenCode: z.string().trim().min(1, 'Kitchen code is required.').max(50),
   kitchenName: z.string().trim().min(1, 'Kitchen name is required.').max(150),
-  openingTime: timeField
+  openingTime: timeField,
 });
 
 const restaurantSchema = z.object({
@@ -114,7 +122,7 @@ const restaurantSchema = z.object({
   openingTime: timeField,
   restaurantCode: z.string().trim().min(1, 'Restaurant code is required.').max(50),
   restaurantName: z.string().trim().min(1, 'Restaurant name is required.').max(150),
-  storeId: optionalUuid
+  storeId: optionalUuid,
 });
 
 const counterSchema = z.object({
@@ -125,7 +133,7 @@ const counterSchema = z.object({
   paymentDeviceId: optionalText(100),
   pineLabsDeviceId: optionalText(100),
   posDeviceId: optionalText(100),
-  restaurantId: z.string().uuid('Select a restaurant.')
+  restaurantId: z.string().uuid('Select a restaurant.'),
 });
 
 type ActiveFilter = '' | 'active' | 'inactive';
@@ -172,7 +180,7 @@ interface PaginationControlsProps {
 
 const dateFormatter = new Intl.DateTimeFormat('en-IN', {
   dateStyle: 'medium',
-  timeStyle: 'short'
+  timeStyle: 'short',
 });
 
 function activeFilterToBoolean(value: ActiveFilter): boolean | undefined {
@@ -198,7 +206,7 @@ function applyValidationErrors<TFormValues extends FieldValues>(
 
     if (typeof fieldName === 'string') {
       form.setError(fieldName as Path<TFormValues>, {
-        message: issue.message
+        message: issue.message,
       });
     }
   });
@@ -232,9 +240,7 @@ function nullableText(value: string | null | undefined): string {
 
 function StatusBadge({ isActive }: Readonly<{ isActive: boolean }>) {
   return (
-    <Badge variant={isActive ? 'success' : 'danger'}>
-      {isActive ? 'Active' : 'Inactive'}
-    </Badge>
+    <Badge variant={isActive ? 'success' : 'danger'}>{isActive ? 'Active' : 'Inactive'}</Badge>
   );
 }
 
@@ -266,7 +272,7 @@ function ToolbarGrid({ children }: Readonly<{ children: ReactNode }>) {
 
 function SearchInput({
   onChange,
-  value
+  value,
 }: Readonly<{
   onChange: (value: string) => void;
   value: string;
@@ -287,7 +293,7 @@ function SearchInput({
 
 function ActiveFilterSelect({
   onChange,
-  value
+  value,
 }: Readonly<{
   onChange: (value: ActiveFilter) => void;
   value: ActiveFilter;
@@ -303,7 +309,7 @@ function ActiveFilterSelect({
 
 function SortOrderSelect({
   onChange,
-  value
+  value,
 }: Readonly<{
   onChange: (value: SortOrder) => void;
   value: SortOrder;
@@ -321,7 +327,7 @@ function QueryState({
   error,
   isError,
   isLoading,
-  label
+  label,
 }: Readonly<{
   colSpan: number;
   error: unknown;
@@ -370,7 +376,7 @@ function PaginationControls({
   onPageChange,
   page,
   total,
-  totalPages
+  totalPages,
 }: PaginationControlsProps) {
   const safeTotalPages = Math.max(totalPages, 1);
 
@@ -408,7 +414,7 @@ function FormShell({
   children,
   icon,
   subtitle,
-  title
+  title,
 }: Readonly<{
   backHref: string;
   children: ReactNode;
@@ -435,14 +441,18 @@ function FormShell({
 function SubmitButton({
   disabled = false,
   isPending,
-  label
+  label,
 }: Readonly<{
   disabled?: boolean;
   isPending: boolean;
   label: string;
 }>) {
   return (
-    <Button className="bg-teal-600 hover:bg-teal-700" disabled={disabled || isPending} type="submit">
+    <Button
+      className="bg-teal-600 hover:bg-teal-700"
+      disabled={disabled || isPending}
+      type="submit"
+    >
       {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
       {label}
     </Button>
@@ -451,7 +461,7 @@ function SubmitButton({
 
 function FormWarning({
   isVisible,
-  message
+  message,
 }: Readonly<{
   isVisible: boolean;
   message: string;
@@ -469,7 +479,7 @@ function FormWarning({
 
 function CheckboxLine({
   children,
-  input
+  input,
 }: Readonly<{
   children: ReactNode;
   input: ReactNode;
@@ -483,7 +493,7 @@ function CheckboxLine({
 }
 
 function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt: string }>({
-  config
+  config,
 }: Readonly<{ config: EntityListConfig<TItem> }>) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -499,12 +509,12 @@ function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt
         page,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       return response.data;
     },
-    queryKey: [config.entityKey, { activeFilter, page, search, sortBy, sortOrder }]
+    queryKey: [config.entityKey, { activeFilter, page, search, sortBy, sortOrder }],
   });
 
   const items = entityQuery.data?.items ?? [];
@@ -512,7 +522,7 @@ function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt
     limit: listLimit,
     page,
     total: 0,
-    totalPages: 1
+    totalPages: 1,
   };
 
   return (
@@ -631,12 +641,12 @@ function useHospitalOptions() {
         isActive: true,
         limit: 100,
         sortBy: 'hospitalName',
-        sortOrder: 'asc'
+        sortOrder: 'asc',
       });
 
       return response.data.items;
     },
-    queryKey: ['hospital-options']
+    queryKey: ['hospital-options'],
   });
 }
 
@@ -649,12 +659,12 @@ function useStoreOptions(hospitalId?: string) {
         isActive: true,
         limit: 100,
         sortBy: 'storeName',
-        sortOrder: 'asc'
+        sortOrder: 'asc',
       });
 
       return response.data.items;
     },
-    queryKey: ['store-options', hospitalId]
+    queryKey: ['store-options', hospitalId],
   });
 }
 
@@ -667,12 +677,12 @@ function useKitchenOptions(hospitalId?: string) {
         isActive: true,
         limit: 100,
         sortBy: 'kitchenName',
-        sortOrder: 'asc'
+        sortOrder: 'asc',
       });
 
       return response.data.items;
     },
-    queryKey: ['kitchen-options', hospitalId]
+    queryKey: ['kitchen-options', hospitalId],
   });
 }
 
@@ -685,12 +695,12 @@ function useRestaurantOptions(hospitalId?: string) {
         isActive: true,
         limit: 100,
         sortBy: 'restaurantName',
-        sortOrder: 'asc'
+        sortOrder: 'asc',
       });
 
       return response.data.items;
     },
-    queryKey: ['restaurant-options', hospitalId]
+    queryKey: ['restaurant-options', hospitalId],
   });
 }
 
@@ -701,7 +711,7 @@ function useEntityTotal(queryKey: string, queryFn: () => Promise<ApiResponse<Api
 
       return response.data.meta.total;
     },
-    queryKey: ['dashboard', queryKey]
+    queryKey: ['dashboard', queryKey],
   });
 }
 
@@ -718,22 +728,22 @@ export function HospitalsPageClient() {
                 <p className="font-medium text-slate-950">{hospital.hospitalName}</p>
                 <p className="text-xs text-slate-500">{hospital.hospitalCode}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[22%]',
             header: 'City',
-            render: (hospital) => nullableText(hospital.city)
+            render: (hospital) => nullableText(hospital.city),
           },
           {
             className: 'w-[18%]',
             header: 'State',
-            render: (hospital) => nullableText(hospital.state)
+            render: (hospital) => nullableText(hospital.state),
           },
           {
             className: 'w-[18%]',
             header: 'Bill Prefix',
-            render: (hospital) => nullableText(hospital.billPrefix)
+            render: (hospital) => nullableText(hospital.billPrefix),
           },
           {
             className: 'w-[24%]',
@@ -753,8 +763,8 @@ export function HospitalsPageClient() {
                   </Link>
                 </Button>
               </div>
-            )
-          }
+            ),
+          },
         ],
         createHref: '/masters/hospitals/new',
         emptyLabel: 'hospitals',
@@ -767,18 +777,16 @@ export function HospitalsPageClient() {
           { label: 'Hospital code', value: 'hospitalCode' },
           { label: 'City', value: 'city' },
           { label: 'State', value: 'state' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage hospitals using the AAHAR operating hierarchy.',
-        title: 'Hospitals'
+        title: 'Hospitals',
       }}
     />
   );
 }
 
-export function HospitalLocationsPageClient({
-  hospitalId
-}: Readonly<{ hospitalId: string }>) {
+export function HospitalLocationsPageClient({ hospitalId }: Readonly<{ hospitalId: string }>) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
@@ -796,8 +804,8 @@ export function HospitalLocationsPageClient({
       floor: '',
       hospitalId,
       isActive: true,
-      locationName: ''
-    }
+      locationName: '',
+    },
   });
 
   const hospitalQuery = useQuery({
@@ -806,7 +814,7 @@ export function HospitalLocationsPageClient({
 
       return response.data;
     },
-    queryKey: ['hospital', hospitalId]
+    queryKey: ['hospital', hospitalId],
   });
 
   const locationsQuery = useQuery({
@@ -818,12 +826,12 @@ export function HospitalLocationsPageClient({
         page,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       return response.data;
     },
-    queryKey: ['hospital-locations', hospitalId, { activeFilter, page, search, sortBy, sortOrder }]
+    queryKey: ['hospital-locations', hospitalId, { activeFilter, page, search, sortBy, sortOrder }],
   });
 
   const saveLocationMutation = useMutation({
@@ -835,7 +843,7 @@ export function HospitalLocationsPageClient({
       showToast({
         description: getApiErrorMessage(error),
         title: editingLocation ? 'Location was not updated' : 'Location was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -844,7 +852,7 @@ export function HospitalLocationsPageClient({
       void queryClient.invalidateQueries({ queryKey: ['locations'] });
       showToast({
         title: editingLocation ? 'Location updated' : 'Location created',
-        variant: 'success'
+        variant: 'success',
       });
       setEditingLocation(null);
       form.reset({
@@ -854,9 +862,9 @@ export function HospitalLocationsPageClient({
         floor: '',
         hospitalId,
         isActive: true,
-        locationName: ''
+        locationName: '',
       });
-    }
+    },
   });
 
   const deleteLocationMutation = useMutation({
@@ -865,7 +873,7 @@ export function HospitalLocationsPageClient({
       showToast({
         description: getApiErrorMessage(error),
         title: 'Location was not deleted',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -874,9 +882,9 @@ export function HospitalLocationsPageClient({
       void queryClient.invalidateQueries({ queryKey: ['locations'] });
       showToast({
         title: 'Location deleted',
-        variant: 'success'
+        variant: 'success',
       });
-    }
+    },
   });
 
   const items = locationsQuery.data?.items ?? [];
@@ -884,14 +892,14 @@ export function HospitalLocationsPageClient({
     limit: listLimit,
     page,
     total: 0,
-    totalPages: 1
+    totalPages: 1,
   };
   const hospital = hospitalQuery.data;
 
   const handleSubmit = form.handleSubmit((values) => {
     const parsed = locationSchema.safeParse({
       ...values,
-      hospitalId
+      hospitalId,
     });
 
     if (!parsed.success) {
@@ -906,7 +914,7 @@ export function HospitalLocationsPageClient({
       floor: optionalValue(parsed.data.floor),
       hospitalId,
       isActive: parsed.data.isActive,
-      locationName: parsed.data.locationName
+      locationName: parsed.data.locationName,
     });
   });
 
@@ -919,7 +927,7 @@ export function HospitalLocationsPageClient({
       floor: location.floor ?? '',
       hospitalId,
       isActive: location.isActive,
-      locationName: location.locationName
+      locationName: location.locationName,
     });
   }
 
@@ -932,7 +940,7 @@ export function HospitalLocationsPageClient({
       floor: '',
       hospitalId,
       isActive: true,
-      locationName: ''
+      locationName: '',
     });
   }
 
@@ -1041,26 +1049,48 @@ export function HospitalLocationsPageClient({
           }}
         >
           <div className="grid gap-5 md:grid-cols-2">
-            <Field error={form.formState.errors.locationName?.message} label="Location Name" name="hospital-location-name">
+            <Field
+              error={form.formState.errors.locationName?.message}
+              label="Location Name"
+              name="hospital-location-name"
+            >
               <Input id="hospital-location-name" {...form.register('locationName')} />
             </Field>
-            <Field error={form.formState.errors.building?.message} label="Building" name="hospital-location-building">
+            <Field
+              error={form.formState.errors.building?.message}
+              label="Building"
+              name="hospital-location-building"
+            >
               <Input id="hospital-location-building" {...form.register('building')} />
             </Field>
           </div>
           <div className="grid gap-5 md:grid-cols-3">
-            <Field error={form.formState.errors.floor?.message} label="Floor" name="hospital-location-floor">
+            <Field
+              error={form.formState.errors.floor?.message}
+              label="Floor"
+              name="hospital-location-floor"
+            >
               <Input id="hospital-location-floor" {...form.register('floor')} />
             </Field>
-            <Field error={form.formState.errors.area?.message} label="Area" name="hospital-location-area">
+            <Field
+              error={form.formState.errors.area?.message}
+              label="Area"
+              name="hospital-location-area"
+            >
               <Input id="hospital-location-area" {...form.register('area')} />
             </Field>
-            <Field error={form.formState.errors.address?.message} label="Address" name="hospital-location-address">
+            <Field
+              error={form.formState.errors.address?.message}
+              label="Address"
+              name="hospital-location-address"
+            >
               <Input id="hospital-location-address" {...form.register('address')} />
             </Field>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+            <CheckboxLine
+              input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+            >
               Active
             </CheckboxLine>
             <div className="flex gap-2">
@@ -1213,23 +1243,23 @@ export function LocationsPageClient() {
                 <p className="font-medium text-slate-950">{location.locationName}</p>
                 <p className="text-xs text-slate-500">{nullableText(location.area)}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[24%]',
             header: 'Hospital',
-            render: (location) => location.hospital.hospitalName
+            render: (location) => location.hospital.hospitalName,
           },
           {
             className: 'w-[18%]',
             header: 'Building',
-            render: (location) => nullableText(location.building)
+            render: (location) => nullableText(location.building),
           },
           {
             className: 'w-[16%]',
             header: 'Floor',
-            render: (location) => nullableText(location.floor)
-          }
+            render: (location) => nullableText(location.floor),
+          },
         ],
         createHref: '/masters/locations/new',
         emptyLabel: 'locations',
@@ -1242,10 +1272,10 @@ export function LocationsPageClient() {
           { label: 'Building', value: 'building' },
           { label: 'Floor', value: 'floor' },
           { label: 'Area', value: 'area' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage hospital campus, floor, and service locations.',
-        title: 'Locations'
+        title: 'Locations',
       }}
     />
   );
@@ -1264,23 +1294,23 @@ export function StoresPageClient() {
                 <p className="font-medium text-slate-950">{store.storeName}</p>
                 <p className="text-xs text-slate-500">{store.storeCode}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[22%]',
             header: 'Hospital',
-            render: (store) => store.hospital.hospitalName
+            render: (store) => store.hospital.hospitalName,
           },
           {
             className: 'w-[20%]',
             header: 'Location',
-            render: (store) => store.location?.locationName ?? 'Not set'
+            render: (store) => store.location?.locationName ?? 'Not set',
           },
           {
             className: 'w-[18%]',
             header: 'Type',
-            render: (store) => nullableText(store.storeType)
-          }
+            render: (store) => nullableText(store.storeType),
+          },
         ],
         createHref: '/masters/stores/new',
         emptyLabel: 'stores',
@@ -1292,10 +1322,10 @@ export function StoresPageClient() {
           { label: 'Store name', value: 'storeName' },
           { label: 'Store code', value: 'storeCode' },
           { label: 'Store type', value: 'storeType' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage F&B stores linked to hospitals and locations.',
-        title: 'Stores'
+        title: 'Stores',
       }}
     />
   );
@@ -1314,17 +1344,17 @@ export function KitchensPageClient() {
                 <p className="font-medium text-slate-950">{kitchen.kitchenName}</p>
                 <p className="text-xs text-slate-500">{kitchen.kitchenCode}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[22%]',
             header: 'Hospital',
-            render: (kitchen) => kitchen.hospital.hospitalName
+            render: (kitchen) => kitchen.hospital.hospitalName,
           },
           {
             className: 'w-[20%]',
             header: 'Location',
-            render: (kitchen) => kitchen.location?.locationName ?? 'Not set'
+            render: (kitchen) => kitchen.location?.locationName ?? 'Not set',
           },
           {
             className: 'w-[18%]',
@@ -1332,8 +1362,8 @@ export function KitchensPageClient() {
             render: (kitchen) =>
               kitchen.openingTime || kitchen.closingTime
                 ? `${nullableText(kitchen.openingTime)} to ${nullableText(kitchen.closingTime)}`
-                : 'Not set'
-          }
+                : 'Not set',
+          },
         ],
         createHref: '/masters/kitchens/new',
         emptyLabel: 'kitchens',
@@ -1344,10 +1374,10 @@ export function KitchensPageClient() {
           { label: 'Created date', value: 'createdAt' },
           { label: 'Kitchen name', value: 'kitchenName' },
           { label: 'Kitchen code', value: 'kitchenCode' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage production kitchens for hospital food service.',
-        title: 'Kitchens'
+        title: 'Kitchens',
       }}
     />
   );
@@ -1366,17 +1396,17 @@ export function RestaurantsPageClient() {
                 <p className="font-medium text-slate-950">{restaurant.restaurantName}</p>
                 <p className="text-xs text-slate-500">{restaurant.restaurantCode}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[20%]',
             header: 'Hospital',
-            render: (restaurant) => restaurant.hospital.hospitalName
+            render: (restaurant) => restaurant.hospital.hospitalName,
           },
           {
             className: 'w-[18%]',
             header: 'Location',
-            render: (restaurant) => restaurant.location?.locationName ?? 'Not set'
+            render: (restaurant) => restaurant.location?.locationName ?? 'Not set',
           },
           {
             className: 'w-[22%]',
@@ -1384,8 +1414,8 @@ export function RestaurantsPageClient() {
             render: (restaurant) =>
               `${restaurant.store?.storeName ?? 'No store'} / ${
                 restaurant.kitchen?.kitchenName ?? 'No kitchen'
-              }`
-          }
+              }`,
+          },
         ],
         createHref: '/masters/restaurants/new',
         emptyLabel: 'restaurants',
@@ -1396,10 +1426,10 @@ export function RestaurantsPageClient() {
           { label: 'Created date', value: 'createdAt' },
           { label: 'Restaurant name', value: 'restaurantName' },
           { label: 'Restaurant code', value: 'restaurantCode' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage restaurants linked to hospital service areas.',
-        title: 'Restaurants'
+        title: 'Restaurants',
       }}
     />
   );
@@ -1418,23 +1448,23 @@ export function CountersPageClient() {
                 <p className="font-medium text-slate-950">{counter.counterName}</p>
                 <p className="text-xs text-slate-500">{counter.counterCode}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[22%]',
             header: 'Restaurant',
-            render: (counter) => counter.restaurant.restaurantName
+            render: (counter) => counter.restaurant.restaurantName,
           },
           {
             className: 'w-[20%]',
             header: 'Hospital',
-            render: (counter) => counter.hospital.hospitalName
+            render: (counter) => counter.hospital.hospitalName,
           },
           {
             className: 'w-[18%]',
             header: 'POS Device',
-            render: (counter) => nullableText(counter.posDeviceId)
-          }
+            render: (counter) => nullableText(counter.posDeviceId),
+          },
         ],
         createHref: '/masters/counters/new',
         emptyLabel: 'counters',
@@ -1445,10 +1475,10 @@ export function CountersPageClient() {
           { label: 'Created date', value: 'createdAt' },
           { label: 'Counter name', value: 'counterName' },
           { label: 'Counter code', value: 'counterCode' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage restaurant counters and POS points.',
-        title: 'Counters'
+        title: 'Counters',
       }}
     />
   );
@@ -1464,8 +1494,8 @@ export function HospitalCreatePageClient() {
       hospitalCode: '',
       hospitalName: '',
       isActive: true,
-      state: ''
-    }
+      state: '',
+    },
   });
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -1476,7 +1506,7 @@ export function HospitalCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Hospital was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1484,10 +1514,10 @@ export function HospitalCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['hospital-options'] });
       showToast({
         title: 'Hospital created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/hospitals');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1506,7 +1536,7 @@ export function HospitalCreatePageClient() {
       hospitalCode: parsed.data.hospitalCode,
       hospitalName: parsed.data.hospitalName,
       isActive: parsed.data.isActive,
-      state: optionalValue(parsed.data.state)
+      state: optionalValue(parsed.data.state),
     });
   });
 
@@ -1524,10 +1554,18 @@ export function HospitalCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalName?.message} label="Hospital Name" name="hospital-name">
+          <Field
+            error={form.formState.errors.hospitalName?.message}
+            label="Hospital Name"
+            name="hospital-name"
+          >
             <Input id="hospital-name" {...form.register('hospitalName')} />
           </Field>
-          <Field error={form.formState.errors.hospitalCode?.message} label="Hospital Code" name="hospital-code">
+          <Field
+            error={form.formState.errors.hospitalCode?.message}
+            label="Hospital Code"
+            name="hospital-code"
+          >
             <Input id="hospital-code" {...form.register('hospitalCode')} />
           </Field>
         </div>
@@ -1538,18 +1576,32 @@ export function HospitalCreatePageClient() {
           <Field error={form.formState.errors.state?.message} label="State" name="hospital-state">
             <Input id="hospital-state" {...form.register('state')} />
           </Field>
-          <Field error={form.formState.errors.billPrefix?.message} label="Bill Prefix" name="hospital-bill-prefix">
+          <Field
+            error={form.formState.errors.billPrefix?.message}
+            label="Bill Prefix"
+            name="hospital-bill-prefix"
+          >
             <Input id="hospital-bill-prefix" {...form.register('billPrefix')} />
           </Field>
         </div>
-        <Field error={form.formState.errors.address?.message} label="Address" name="hospital-address">
+        <Field
+          error={form.formState.errors.address?.message}
+          label="Address"
+          name="hospital-address"
+        >
           <Input id="hospital-address" {...form.register('address')} />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('gstApplicable')} />}>
+          <CheckboxLine
+            input={
+              <input className="h-4 w-4" type="checkbox" {...form.register('gstApplicable')} />
+            }
+          >
             GST applicable
           </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+          <CheckboxLine
+            input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+          >
             Active
           </CheckboxLine>
         </div>
@@ -1570,8 +1622,8 @@ export function LocationCreatePageClient() {
       floor: '',
       hospitalId: '',
       isActive: true,
-      locationName: ''
-    }
+      locationName: '',
+    },
   });
   const hospitalOptionsQuery = useHospitalOptions();
   const queryClient = useQueryClient();
@@ -1583,7 +1635,7 @@ export function LocationCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Location was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1591,10 +1643,10 @@ export function LocationCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['location-options'] });
       showToast({
         title: 'Location created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/locations');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1612,7 +1664,7 @@ export function LocationCreatePageClient() {
       floor: optionalValue(parsed.data.floor),
       hospitalId: parsed.data.hospitalId,
       isActive: parsed.data.isActive,
-      locationName: parsed.data.locationName
+      locationName: parsed.data.locationName,
     });
   });
 
@@ -1629,8 +1681,16 @@ export function LocationCreatePageClient() {
           void handleSubmit(event);
         }}
       >
-        <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="location-hospital">
-          <Select disabled={hospitalOptionsQuery.isLoading} id="location-hospital" {...form.register('hospitalId')}>
+        <Field
+          error={form.formState.errors.hospitalId?.message}
+          label="Hospital"
+          name="location-hospital"
+        >
+          <Select
+            disabled={hospitalOptionsQuery.isLoading}
+            id="location-hospital"
+            {...form.register('hospitalId')}
+          >
             <option value="">Select hospital</option>
             {hospitalOptionsQuery.data?.map((hospital) => (
               <option key={hospital.id} value={hospital.id}>
@@ -1640,10 +1700,18 @@ export function LocationCreatePageClient() {
           </Select>
         </Field>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.locationName?.message} label="Location Name" name="location-name">
+          <Field
+            error={form.formState.errors.locationName?.message}
+            label="Location Name"
+            name="location-name"
+          >
             <Input id="location-name" {...form.register('locationName')} />
           </Field>
-          <Field error={form.formState.errors.building?.message} label="Building" name="location-building">
+          <Field
+            error={form.formState.errors.building?.message}
+            label="Building"
+            name="location-building"
+          >
             <Input id="location-building" {...form.register('building')} />
           </Field>
         </div>
@@ -1655,10 +1723,16 @@ export function LocationCreatePageClient() {
             <Input id="location-area" {...form.register('area')} />
           </Field>
         </div>
-        <Field error={form.formState.errors.address?.message} label="Address" name="location-address">
+        <Field
+          error={form.formState.errors.address?.message}
+          label="Address"
+          name="location-address"
+        >
           <Input id="location-address" {...form.register('address')} />
         </Field>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -1681,8 +1755,8 @@ export function StoreCreatePageClient() {
       isActive: true,
       storeCode: '',
       storeName: '',
-      storeType: 'F&B'
-    }
+      storeType: 'F&B',
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const storeName = form.watch('storeName');
@@ -1700,7 +1774,7 @@ export function StoreCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Store was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1708,10 +1782,10 @@ export function StoreCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['store-options'] });
       showToast({
         title: 'Store created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/stores');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1728,7 +1802,7 @@ export function StoreCreatePageClient() {
       isActive: parsed.data.isActive,
       storeCode: parsed.data.storeCode,
       storeName: parsed.data.storeName,
-      storeType: optionalValue(parsed.data.storeType)
+      storeType: optionalValue(parsed.data.storeType),
     });
   });
 
@@ -1746,8 +1820,16 @@ export function StoreCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="store-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="store-hospital" {...form.register('hospitalId')}>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Hospital"
+            name="store-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading}
+              id="store-hospital"
+              {...form.register('hospitalId')}
+            >
               <option value="">Select hospital</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
@@ -1758,22 +1840,40 @@ export function StoreCreatePageClient() {
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.storeName?.message} label="Store Name" name="store-name">
+          <Field
+            error={form.formState.errors.storeName?.message}
+            label="Store Name"
+            name="store-name"
+          >
             <Input id="store-name" {...form.register('storeName')} />
           </Field>
-          <Field error={form.formState.errors.storeCode?.message} label="Store Code" name="store-code">
+          <Field
+            error={form.formState.errors.storeCode?.message}
+            label="Store Code"
+            name="store-code"
+          >
             <Input id="store-code" {...form.register('storeCode')} />
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.storeType?.message} label="Store Type" name="store-type">
+          <Field
+            error={form.formState.errors.storeType?.message}
+            label="Store Type"
+            name="store-type"
+          >
             <Input id="store-type" {...form.register('storeType')} />
           </Field>
-          <Field error={form.formState.errors.address?.message} label="Address" name="store-address">
+          <Field
+            error={form.formState.errors.address?.message}
+            label="Address"
+            name="store-address"
+          >
             <Input id="store-address" {...form.register('address')} />
           </Field>
         </div>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -1800,8 +1900,8 @@ export function KitchenCreatePageClient() {
       isActive: true,
       kitchenCode: '',
       kitchenName: '',
-      openingTime: ''
-    }
+      openingTime: '',
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const kitchenName = form.watch('kitchenName');
@@ -1819,7 +1919,7 @@ export function KitchenCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Kitchen was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1827,10 +1927,10 @@ export function KitchenCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['kitchen-options'] });
       showToast({
         title: 'Kitchen created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/kitchens');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1847,7 +1947,7 @@ export function KitchenCreatePageClient() {
       isActive: parsed.data.isActive,
       kitchenCode: parsed.data.kitchenCode,
       kitchenName: parsed.data.kitchenName,
-      openingTime: optionalValue(parsed.data.openingTime)
+      openingTime: optionalValue(parsed.data.openingTime),
     });
   });
 
@@ -1865,8 +1965,16 @@ export function KitchenCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="kitchen-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="kitchen-hospital" {...form.register('hospitalId')}>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Hospital"
+            name="kitchen-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading}
+              id="kitchen-hospital"
+              {...form.register('hospitalId')}
+            >
               <option value="">Select hospital</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
@@ -1877,22 +1985,48 @@ export function KitchenCreatePageClient() {
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.kitchenName?.message} label="Kitchen Name" name="kitchen-name">
+          <Field
+            error={form.formState.errors.kitchenName?.message}
+            label="Kitchen Name"
+            name="kitchen-name"
+          >
             <Input id="kitchen-name" {...form.register('kitchenName')} />
           </Field>
-          <Field error={form.formState.errors.kitchenCode?.message} label="Kitchen Code" name="kitchen-code">
+          <Field
+            error={form.formState.errors.kitchenCode?.message}
+            label="Kitchen Code"
+            name="kitchen-code"
+          >
             <Input id="kitchen-code" {...form.register('kitchenCode')} />
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.openingTime?.message} label="Opening Time" name="kitchen-opening-time">
-            <Input id="kitchen-opening-time" placeholder="07:00" {...form.register('openingTime')} />
+          <Field
+            error={form.formState.errors.openingTime?.message}
+            label="Opening Time"
+            name="kitchen-opening-time"
+          >
+            <Input
+              id="kitchen-opening-time"
+              placeholder="07:00"
+              {...form.register('openingTime')}
+            />
           </Field>
-          <Field error={form.formState.errors.closingTime?.message} label="Closing Time" name="kitchen-closing-time">
-            <Input id="kitchen-closing-time" placeholder="22:00" {...form.register('closingTime')} />
+          <Field
+            error={form.formState.errors.closingTime?.message}
+            label="Closing Time"
+            name="kitchen-closing-time"
+          >
+            <Input
+              id="kitchen-closing-time"
+              placeholder="22:00"
+              {...form.register('closingTime')}
+            />
           </Field>
         </div>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -1925,8 +2059,8 @@ export function RestaurantCreatePageClient() {
       openingTime: '',
       restaurantCode: '',
       restaurantName: '',
-      storeId: ''
-    }
+      storeId: '',
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const restaurantName = form.watch('restaurantName');
@@ -1939,9 +2073,7 @@ export function RestaurantCreatePageClient() {
   const router = useRouter();
   const { showToast } = useToast();
   const canSubmitRestaurant =
-    isUuid(hospitalId) &&
-    hasRequiredText(restaurantName) &&
-    hasRequiredText(restaurantCode);
+    isUuid(hospitalId) && hasRequiredText(restaurantName) && hasRequiredText(restaurantCode);
 
   useEffect(() => {
     setValue('kitchenId', '');
@@ -1954,7 +2086,7 @@ export function RestaurantCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Restaurant was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1962,10 +2094,10 @@ export function RestaurantCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['restaurant-options'] });
       showToast({
         title: 'Restaurant created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/restaurants');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1988,18 +2120,14 @@ export function RestaurantCreatePageClient() {
       openingTime: optionalValue(parsed.data.openingTime),
       restaurantCode: parsed.data.restaurantCode,
       restaurantName: parsed.data.restaurantName,
-      storeId: optionalId(parsed.data.storeId)
+      storeId: optionalId(parsed.data.storeId),
     });
   });
 
   const hasOptionError =
-    hospitalOptionsQuery.isError ||
-    storeOptionsQuery.isError ||
-    kitchenOptionsQuery.isError;
+    hospitalOptionsQuery.isError || storeOptionsQuery.isError || kitchenOptionsQuery.isError;
   const optionError =
-    hospitalOptionsQuery.error ??
-    storeOptionsQuery.error ??
-    kitchenOptionsQuery.error;
+    hospitalOptionsQuery.error ?? storeOptionsQuery.error ?? kitchenOptionsQuery.error;
 
   return (
     <FormShell
@@ -2015,8 +2143,16 @@ export function RestaurantCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="restaurant-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="restaurant-hospital" {...form.register('hospitalId')}>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Hospital"
+            name="restaurant-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading}
+              id="restaurant-hospital"
+              {...form.register('hospitalId')}
+            >
               <option value="">Select hospital</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
@@ -2027,16 +2163,32 @@ export function RestaurantCreatePageClient() {
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.restaurantName?.message} label="Restaurant Name" name="restaurant-name">
+          <Field
+            error={form.formState.errors.restaurantName?.message}
+            label="Restaurant Name"
+            name="restaurant-name"
+          >
             <Input id="restaurant-name" {...form.register('restaurantName')} />
           </Field>
-          <Field error={form.formState.errors.restaurantCode?.message} label="Restaurant Code" name="restaurant-code">
+          <Field
+            error={form.formState.errors.restaurantCode?.message}
+            label="Restaurant Code"
+            name="restaurant-code"
+          >
             <Input id="restaurant-code" {...form.register('restaurantCode')} />
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.storeId?.message} label="Store/F&B" name="restaurant-store">
-            <Select disabled={!hospitalId || storeOptionsQuery.isLoading} id="restaurant-store" {...form.register('storeId')}>
+          <Field
+            error={form.formState.errors.storeId?.message}
+            label="Store/F&B"
+            name="restaurant-store"
+          >
+            <Select
+              disabled={!hospitalId || storeOptionsQuery.isLoading}
+              id="restaurant-store"
+              {...form.register('storeId')}
+            >
               <option value="">No store selected</option>
               {storeOptionsQuery.data?.map((store) => (
                 <option key={store.id} value={store.id}>
@@ -2045,8 +2197,16 @@ export function RestaurantCreatePageClient() {
               ))}
             </Select>
           </Field>
-          <Field error={form.formState.errors.kitchenId?.message} label="Kitchen" name="restaurant-kitchen">
-            <Select disabled={!hospitalId || kitchenOptionsQuery.isLoading} id="restaurant-kitchen" {...form.register('kitchenId')}>
+          <Field
+            error={form.formState.errors.kitchenId?.message}
+            label="Kitchen"
+            name="restaurant-kitchen"
+          >
+            <Select
+              disabled={!hospitalId || kitchenOptionsQuery.isLoading}
+              id="restaurant-kitchen"
+              {...form.register('kitchenId')}
+            >
               <option value="">No kitchen selected</option>
               {kitchenOptionsQuery.data?.map((kitchen) => (
                 <option key={kitchen.id} value={kitchen.id}>
@@ -2056,28 +2216,68 @@ export function RestaurantCreatePageClient() {
             </Select>
           </Field>
         </div>
-        <Field error={form.formState.errors.address?.message} label="Address" name="restaurant-address">
+        <Field
+          error={form.formState.errors.address?.message}
+          label="Address"
+          name="restaurant-address"
+        >
           <Input id="restaurant-address" {...form.register('address')} />
         </Field>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.openingTime?.message} label="Opening Time" name="restaurant-opening-time">
-            <Input id="restaurant-opening-time" placeholder="07:00" {...form.register('openingTime')} />
+          <Field
+            error={form.formState.errors.openingTime?.message}
+            label="Opening Time"
+            name="restaurant-opening-time"
+          >
+            <Input
+              id="restaurant-opening-time"
+              placeholder="07:00"
+              {...form.register('openingTime')}
+            />
           </Field>
-          <Field error={form.formState.errors.closingTime?.message} label="Closing Time" name="restaurant-closing-time">
-            <Input id="restaurant-closing-time" placeholder="22:00" {...form.register('closingTime')} />
+          <Field
+            error={form.formState.errors.closingTime?.message}
+            label="Closing Time"
+            name="restaurant-closing-time"
+          >
+            <Input
+              id="restaurant-closing-time"
+              placeholder="22:00"
+              {...form.register('closingTime')}
+            />
           </Field>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('onlineOrderingEnabled')} />}>
+          <CheckboxLine
+            input={
+              <input
+                className="h-4 w-4"
+                type="checkbox"
+                {...form.register('onlineOrderingEnabled')}
+              />
+            }
+          >
             Online ordering
           </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('inRoomDiningEnabled')} />}>
+          <CheckboxLine
+            input={
+              <input
+                className="h-4 w-4"
+                type="checkbox"
+                {...form.register('inRoomDiningEnabled')}
+              />
+            }
+          >
             Room service
           </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('b2cQrEnabled')} />}>
+          <CheckboxLine
+            input={<input className="h-4 w-4" type="checkbox" {...form.register('b2cQrEnabled')} />}
+          >
             B2C QR
           </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+          <CheckboxLine
+            input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+          >
             Active
           </CheckboxLine>
         </div>
@@ -2104,8 +2304,8 @@ export function CounterCreatePageClient() {
       paymentDeviceId: '',
       pineLabsDeviceId: '',
       posDeviceId: '',
-      restaurantId: ''
-    }
+      restaurantId: '',
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const hospitalOptionsQuery = useHospitalOptions();
@@ -2119,17 +2319,17 @@ export function CounterCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Counter was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
       void queryClient.invalidateQueries({ queryKey: ['counters'] });
       showToast({
         title: 'Counter created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/counters');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -2148,7 +2348,7 @@ export function CounterCreatePageClient() {
       paymentDeviceId: optionalValue(parsed.data.paymentDeviceId),
       pineLabsDeviceId: optionalValue(parsed.data.pineLabsDeviceId),
       posDeviceId: optionalValue(parsed.data.posDeviceId),
-      restaurantId: parsed.data.restaurantId
+      restaurantId: parsed.data.restaurantId,
     });
   });
 
@@ -2166,8 +2366,16 @@ export function CounterCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="counter-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="counter-hospital" {...form.register('hospitalId')}>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Hospital"
+            name="counter-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading}
+              id="counter-hospital"
+              {...form.register('hospitalId')}
+            >
               <option value="">Select hospital</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
@@ -2176,8 +2384,16 @@ export function CounterCreatePageClient() {
               ))}
             </Select>
           </Field>
-          <Field error={form.formState.errors.restaurantId?.message} label="Restaurant" name="counter-restaurant">
-            <Select disabled={!hospitalId || restaurantOptionsQuery.isLoading} id="counter-restaurant" {...form.register('restaurantId')}>
+          <Field
+            error={form.formState.errors.restaurantId?.message}
+            label="Restaurant"
+            name="counter-restaurant"
+          >
+            <Select
+              disabled={!hospitalId || restaurantOptionsQuery.isLoading}
+              id="counter-restaurant"
+              {...form.register('restaurantId')}
+            >
               <option value="">Select restaurant</option>
               {restaurantOptionsQuery.data?.map((restaurant) => (
                 <option key={restaurant.id} value={restaurant.id}>
@@ -2188,25 +2404,47 @@ export function CounterCreatePageClient() {
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.counterName?.message} label="Counter Name" name="counter-name">
+          <Field
+            error={form.formState.errors.counterName?.message}
+            label="Counter Name"
+            name="counter-name"
+          >
             <Input id="counter-name" {...form.register('counterName')} />
           </Field>
-          <Field error={form.formState.errors.counterCode?.message} label="Counter Code" name="counter-code">
+          <Field
+            error={form.formState.errors.counterCode?.message}
+            label="Counter Code"
+            name="counter-code"
+          >
             <Input id="counter-code" {...form.register('counterCode')} />
           </Field>
         </div>
         <div className="grid gap-5 md:grid-cols-3">
-          <Field error={form.formState.errors.posDeviceId?.message} label="POS Device ID" name="counter-pos-device">
+          <Field
+            error={form.formState.errors.posDeviceId?.message}
+            label="POS Device ID"
+            name="counter-pos-device"
+          >
             <Input id="counter-pos-device" {...form.register('posDeviceId')} />
           </Field>
-          <Field error={form.formState.errors.paymentDeviceId?.message} label="Payment Device ID" name="counter-payment-device">
+          <Field
+            error={form.formState.errors.paymentDeviceId?.message}
+            label="Payment Device ID"
+            name="counter-payment-device"
+          >
             <Input id="counter-payment-device" {...form.register('paymentDeviceId')} />
           </Field>
-          <Field error={form.formState.errors.pineLabsDeviceId?.message} label="Pine Labs Device ID" name="counter-pinelabs-device">
+          <Field
+            error={form.formState.errors.pineLabsDeviceId?.message}
+            label="Pine Labs Device ID"
+            name="counter-pinelabs-device"
+          >
             <Input id="counter-pinelabs-device" {...form.register('pineLabsDeviceId')} />
           </Field>
         </div>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -2232,9 +2470,47 @@ export function DashboardOverview() {
   const restaurantsQuery = useEntityTotal('restaurants', () =>
     organizationApi.listRestaurants({ limit: 1 }),
   );
-  const countersQuery = useEntityTotal('counters', () =>
-    organizationApi.listCounters({ limit: 1 }),
+  const itemsQuery = useEntityTotal('items', () => organizationApi.listItems({ limit: 1 }));
+  const employeesQuery = useEntityTotal('employees', () =>
+    organizationApi.listEmployees({ limit: 1 }),
   );
+  const recentGrnsQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listGrns({
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['dashboard', 'recent-grns'],
+  });
+  const recentTransfersQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listTransfers({
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['dashboard', 'recent-transfers'],
+  });
+  const pendingTransfersQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listTransfers({
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        status: 'PENDING_ACKNOWLEDGEMENT',
+      });
+
+      return response.data;
+    },
+    queryKey: ['dashboard', 'pending-acknowledgements'],
+  });
 
   const cards = [
     {
@@ -2242,71 +2518,198 @@ export function DashboardOverview() {
       icon: Hospital,
       label: 'Hospitals',
       query: hospitalsQuery,
-      tone: 'bg-teal-50 text-teal-700'
+      tone: 'teal' as const,
     },
     {
       href: '/masters/stores',
       icon: Store,
       label: 'Stores',
       query: storesQuery,
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'emerald' as const,
     },
     {
       href: '/masters/kitchens',
       icon: ChefHat,
       label: 'Kitchens',
       query: kitchensQuery,
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'amber' as const,
     },
     {
       href: '/masters/restaurants',
       icon: Utensils,
       label: 'Restaurants',
       query: restaurantsQuery,
-      tone: 'bg-indigo-50 text-indigo-700'
+      tone: 'violet' as const,
     },
     {
-      href: '/masters/counters',
-      icon: CreditCard,
-      label: 'Counters',
-      query: countersQuery,
-      tone: 'bg-rose-50 text-rose-700'
-    }
+      href: '/masters/items',
+      icon: PackageOpen,
+      label: 'Items',
+      query: itemsQuery,
+      tone: 'blue' as const,
+    },
+    {
+      href: '/masters/employees',
+      icon: UsersRound,
+      label: 'Employees',
+      query: employeesQuery,
+      tone: 'rose' as const,
+    },
   ];
 
   return (
     <section className="space-y-6">
-      <PageHeader
+      <AppPageHeader
+        action={
+          <Button asChild>
+            <Link href="/inventory/transfers">
+              <ArrowRightLeft className="h-4 w-4" />
+              Review Transfers
+            </Link>
+          </Button>
+        }
+        description="Monitor hospital food operations, inventory movements, and pending restaurant acknowledgements."
         eyebrow="Overview"
         icon={Building2}
-        subtitle="Hospital food operations workspace."
         title="Dashboard"
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {cards.map((card) => {
-          const Icon = card.icon;
 
-          return (
-            <Link href={card.href} key={card.href}>
-              <Panel className="p-5 transition hover:-translate-y-0.5 hover:shadow-md">
-                <div className="flex items-center justify-between gap-4">
-                  <span className={cn('grid h-11 w-11 place-items-center rounded-lg', card.tone)}>
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <ArrowLeft className="h-4 w-4 rotate-180 text-slate-400" />
-                </div>
-                <p className="mt-6 text-sm font-medium text-slate-500">{card.label}</p>
-                {card.query.isLoading ? (
-                  <Skeleton className="mt-2 h-9 w-20" />
-                ) : (
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {card.query.data ?? 0}
-                  </p>
-                )}
-              </Panel>
-            </Link>
-          );
-        })}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => (
+          <KpiCard
+            href={card.href}
+            icon={card.icon}
+            key={card.href}
+            label={card.label}
+            loading={card.query.isLoading}
+            tone={card.tone}
+            trend="Configured master data"
+            value={card.query.data ?? 0}
+          />
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
+        <ChartCard
+          description="Placeholder trend for upcoming restaurant operations and POS modules."
+          title="Food Operations Trend"
+        />
+        <ChartCard description="Work that needs operational attention." title="Pending Actions">
+          <div className="grid gap-3">
+            <MetricTile
+              icon={ClipboardList}
+              label="Pending Acknowledgements"
+              value={
+                pendingTransfersQuery.isLoading
+                  ? '...'
+                  : (pendingTransfersQuery.data?.meta.total ?? 0)
+              }
+            />
+            <MetricTile
+              icon={ArrowRightLeft}
+              label="Recent Transfers"
+              value={
+                recentTransfersQuery.isLoading ? '...' : (recentTransfersQuery.data?.length ?? 0)
+              }
+            />
+            <MetricTile
+              icon={PackageOpen}
+              label="Recent GRNs"
+              value={recentGrnsQuery.isLoading ? '...' : (recentGrnsQuery.data?.length ?? 0)}
+            />
+          </div>
+        </ChartCard>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <ChartCard className="xl:col-span-1" title="Recent GRNs">
+          {recentGrnsQuery.isLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : recentGrnsQuery.data && recentGrnsQuery.data.length > 0 ? (
+            <div className="space-y-3">
+              {recentGrnsQuery.data.map((grn) => (
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                  href="/inventory/grns"
+                  key={grn.id}
+                >
+                  <div>
+                    <p className="font-medium text-slate-950 dark:text-white">{grn.grnNumber}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {grn.store.storeName} - {formatDate(grn.receivedDate)}
+                    </p>
+                  </div>
+                  <DesignStatusBadge status={grn.status} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No recent GRNs" description="Posted GRNs will appear here." />
+          )}
+        </ChartCard>
+
+        <ChartCard className="xl:col-span-1" title="Recent Transfers">
+          {recentTransfersQuery.isLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : recentTransfersQuery.data && recentTransfersQuery.data.length > 0 ? (
+            <div className="space-y-3">
+              {recentTransfersQuery.data.map((transfer) => (
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                  href="/inventory/transfers"
+                  key={transfer.id}
+                >
+                  <div>
+                    <p className="font-medium text-slate-950 dark:text-white">
+                      {transfer.transferNumber}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {transfer.sourceType} to {transfer.destinationType} -{' '}
+                      {formatDate(transfer.transferDate)}
+                    </p>
+                  </div>
+                  <DesignStatusBadge status={transfer.status} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No recent transfers"
+              description="Dispatched transfers will appear here."
+            />
+          )}
+        </ChartCard>
+
+        <ChartCard className="xl:col-span-1" title="Pending Acknowledgements">
+          {pendingTransfersQuery.isLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : pendingTransfersQuery.data?.items.length ? (
+            <div className="space-y-3">
+              {pendingTransfersQuery.data.items.map((transfer) => (
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 transition hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:hover:bg-amber-900"
+                  href="/inventory/transfers"
+                  key={transfer.id}
+                >
+                  <div>
+                    <p className="font-medium text-slate-950 dark:text-white">
+                      {transfer.transferNumber}
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Awaiting restaurant acknowledgement
+                    </p>
+                  </div>
+                  <DesignStatusBadge status={transfer.status} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No pending acknowledgements"
+              description="Restaurant acknowledgement tasks are clear."
+            />
+          )}
+        </ChartCard>
       </div>
     </section>
   );

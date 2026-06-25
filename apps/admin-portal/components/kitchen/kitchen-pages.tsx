@@ -20,6 +20,7 @@ import type {
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
+import { invalidateKitchenProductionQueries } from '@/lib/query-invalidation';
 
 const listLimit = 10;
 const skeletonRows = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
@@ -466,8 +467,7 @@ export function KitchenProductionsPageClient() {
       });
     },
     onSuccess(response) {
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-productions'] });
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
+      invalidateKitchenProductionQueries(queryClient);
       showToast({
         description: response.data.productionNumber,
         title: 'Production posted',
@@ -486,7 +486,7 @@ export function KitchenProductionsPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-productions'] });
+      invalidateKitchenProductionQueries(queryClient);
       showToast({ title: 'Production cancelled', variant: 'success' });
     },
   });
@@ -501,7 +501,7 @@ export function KitchenProductionsPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-productions'] });
+      invalidateKitchenProductionQueries(queryClient);
       showToast({ title: 'Production deleted', variant: 'success' });
     },
   });
@@ -733,7 +733,7 @@ export function CreateKitchenProductionPageClient() {
     },
     onSuccess(response) {
       setCreatedProduction(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-productions'] });
+      invalidateKitchenProductionQueries(queryClient);
       showToast({
         description: response.data.productionNumber,
         title: 'Production saved',
@@ -753,8 +753,7 @@ export function CreateKitchenProductionPageClient() {
     },
     onSuccess(response) {
       setCreatedProduction(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-productions'] });
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
+      invalidateKitchenProductionQueries(queryClient);
       showToast({ title: 'Production posted', variant: 'success' });
     },
   });
@@ -770,7 +769,7 @@ export function CreateKitchenProductionPageClient() {
     },
     onSuccess(response) {
       setCreatedProduction(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-productions'] });
+      invalidateKitchenProductionQueries(queryClient);
       showToast({ title: 'Production cancelled', variant: 'success' });
     },
   });

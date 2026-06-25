@@ -37,6 +37,7 @@ import type {
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
+import { invalidateGrnQueries, invalidateTransferQueries } from '@/lib/query-invalidation';
 
 const listLimit = 10;
 const skeletonRows = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
@@ -536,8 +537,7 @@ export function GrnsPageClient() {
       });
     },
     onSuccess(response) {
-      void queryClient.invalidateQueries({ queryKey: ['grns'] });
-      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      invalidateGrnQueries(queryClient);
       showToast({
         description: response.data.grnNumber,
         title: 'GRN posted to stock',
@@ -556,7 +556,7 @@ export function GrnsPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['grns'] });
+      invalidateGrnQueries(queryClient);
       showToast({ title: 'GRN cancelled', variant: 'success' });
     },
   });
@@ -571,7 +571,7 @@ export function GrnsPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['grns'] });
+      invalidateGrnQueries(queryClient);
       showToast({ title: 'GRN deleted', variant: 'success' });
     },
   });
@@ -791,7 +791,7 @@ export function CreateGrnPageClient() {
     },
     onSuccess(response) {
       setCreatedGrn(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['grns'] });
+      invalidateGrnQueries(queryClient);
       showToast({
         description: response.data.grnNumber,
         title: 'Draft GRN saved',
@@ -811,8 +811,7 @@ export function CreateGrnPageClient() {
     },
     onSuccess(response) {
       setCreatedGrn(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['grns'] });
-      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
+      invalidateGrnQueries(queryClient);
       showToast({ title: 'GRN posted to stock', variant: 'success' });
     },
   });
@@ -828,7 +827,7 @@ export function CreateGrnPageClient() {
     },
     onSuccess(response) {
       setCreatedGrn(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['grns'] });
+      invalidateGrnQueries(queryClient);
       showToast({ title: 'GRN cancelled', variant: 'success' });
     },
   });
@@ -1763,11 +1762,7 @@ export function TransfersPageClient() {
       setPartialTransfer(null);
       setPartialRemarks('');
       setPartialLines([]);
-      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
-      void queryClient.invalidateQueries({ queryKey: ['transfer-acknowledgements'] });
-      void queryClient.invalidateQueries({ queryKey: ['restaurant-stock'] });
-      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
+      invalidateTransferQueries(queryClient);
       showToast({ title: 'Transfer acknowledged', variant: 'success' });
     },
   });
@@ -1782,9 +1777,7 @@ export function TransfersPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
-      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
+      invalidateTransferQueries(queryClient);
       showToast({ title: 'Transfer dispatched', variant: 'success' });
     },
   });
@@ -1799,7 +1792,7 @@ export function TransfersPageClient() {
       });
     },
     onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      invalidateTransferQueries(queryClient);
       showToast({ title: 'Transfer cancelled', variant: 'success' });
     },
   });
@@ -2272,7 +2265,7 @@ export function CreateTransferPageClient() {
     },
     onSuccess(response) {
       setCreatedTransfer(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
+      invalidateTransferQueries(queryClient);
       showToast({
         description: response.data.transferNumber,
         title: 'Transfer saved',
@@ -2292,9 +2285,7 @@ export function CreateTransferPageClient() {
     },
     onSuccess(response) {
       setCreatedTransfer(response.data);
-      void queryClient.invalidateQueries({ queryKey: ['transfers'] });
-      void queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
-      void queryClient.invalidateQueries({ queryKey: ['kitchen-stock'] });
+      invalidateTransferQueries(queryClient);
       showToast({ title: 'Transfer dispatched', variant: 'success' });
     },
   });

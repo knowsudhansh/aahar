@@ -3,6 +3,7 @@
 import { Button } from '@aahar/ui';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowRight, ChefHat, CookingPot, Soup, Utensils } from 'lucide-react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useForm, type Path, type UseFormReturn } from 'react-hook-form';
@@ -17,11 +18,11 @@ const sendOtpSchema = z.object({
     (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
     z.string().email('Enter a valid email address.').optional(),
   ),
-  mobile: z.string().regex(/^\d{10}$/, 'Enter a valid 10 digit mobile number.')
+  mobile: z.string().regex(/^\d{10}$/, 'Enter a valid 10 digit mobile number.'),
 });
 
 const verifyOtpSchema = sendOtpSchema.extend({
-  otp: z.string().regex(/^\d{6}$/, 'Enter the 6 digit OTP.')
+  otp: z.string().regex(/^\d{6}$/, 'Enter the 6 digit OTP.'),
 });
 
 type LoginFormValues = z.input<typeof verifyOtpSchema>;
@@ -37,7 +38,7 @@ function applyValidationErrors<TFormValues extends Record<string, unknown>>(
 
     if (typeof fieldName === 'string') {
       form.setError(fieldName as Path<TFormValues>, {
-        message: issue.message
+        message: issue.message,
       });
     }
   });
@@ -45,22 +46,41 @@ function applyValidationErrors<TFormValues extends Record<string, unknown>>(
 
 export default function LoginPage() {
   const router = useRouter();
-  const { accessToken, isReady, signIn } = useAuth();
+  const { isAuthenticated, isReady, signIn } = useAuth();
   const { showToast } = useToast();
   const [isOtpStep, setIsOtpStep] = useState(false);
+  const [hasShownSessionNotice, setHasShownSessionNotice] = useState(false);
   const form = useForm<LoginFormValues>({
     defaultValues: {
       email: '',
       mobile: '',
-      otp: ''
-    }
+      otp: '',
+    },
   });
 
   useEffect(() => {
-    if (isReady && accessToken) {
+    if (isReady && isAuthenticated) {
       router.replace('/dashboard');
     }
-  }, [accessToken, isReady, router]);
+  }, [isAuthenticated, isReady, router]);
+
+  useEffect(() => {
+    const reason =
+      typeof window === 'undefined'
+        ? null
+        : new URLSearchParams(window.location.search).get('reason');
+
+    if (hasShownSessionNotice || reason !== 'session-expired') {
+      return;
+    }
+
+    showToast({
+      description: 'Please login again to continue.',
+      title: 'Session expired',
+      variant: 'info',
+    });
+    setHasShownSessionNotice(true);
+  }, [hasShownSessionNotice, showToast]);
 
   const sendOtpMutation = useMutation({
     mutationFn: (body: z.output<typeof sendOtpSchema>) => authApi.sendOtp(body),
@@ -68,16 +88,16 @@ export default function LoginPage() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'OTP request failed',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
       setIsOtpStep(true);
       showToast({
         title: 'OTP sent',
-        variant: 'success'
+        variant: 'success',
       });
-    }
+    },
   });
 
   const verifyOtpMutation = useMutation({
@@ -86,17 +106,17 @@ export default function LoginPage() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Login failed',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess(response) {
       signIn(response.data);
       showToast({
         title: 'Signed in',
-        variant: 'success'
+        variant: 'success',
       });
       router.replace('/dashboard');
-    }
+    },
   });
 
   const handleSendOtp = form.handleSubmit((values) => {
@@ -128,18 +148,22 @@ export default function LoginPage() {
           <div>
             <div className="flex items-start justify-between gap-6">
               <div className="flex items-center gap-3">
-                <span className="grid h-11 w-11 place-items-center rounded-lg bg-teal-500">
-                  <Utensils className="h-6 w-6" />
-                </span>
-                <div>
-                  <p className="text-xl font-semibold leading-6">AAHAR</p>
-                  <p className="text-sm text-slate-300">Max Healthcare</p>
-                </div>
+                <Image
+                  alt="AAHAR"
+                  className="h-auto rounded-lg"
+                  height={72}
+                  priority
+                  src="/aahar-logo.svg"
+                  width={240}
+                />
               </div>
-              <div className="rounded-lg border border-white/10 bg-white px-4 py-3 text-slate-950 shadow-lg shadow-black/10">
-                <p className="text-sm font-semibold leading-4">MAX</p>
-                <p className="text-xs font-medium text-slate-500">Healthcare</p>
-              </div>
+              <Image
+                alt="Max Healthcare"
+                className="h-auto rounded-lg shadow-lg shadow-black/10"
+                height={64}
+                src="/max-healthcare-logo.svg"
+                width={220}
+              />
             </div>
             <div className="mt-16 max-w-md">
               <p className="text-sm font-semibold uppercase tracking-normal text-teal-300">
@@ -156,7 +180,7 @@ export default function LoginPage() {
               { icon: Soup, label: 'Fresh meals' },
               { icon: CookingPot, label: 'Cafeteria operations' },
               { icon: ChefHat, label: 'Room service' },
-              { icon: Utensils, label: 'Employee food ordering' }
+              { icon: Utensils, label: 'Employee food ordering' },
             ].map((item) => {
               const Icon = item.icon;
 
@@ -178,9 +202,7 @@ export default function LoginPage() {
         <section className="grid place-items-center px-5 py-10 sm:px-8">
           <div className="w-full max-w-md">
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <span className="grid h-10 w-10 place-items-center rounded-lg bg-teal-600 text-white">
-                <Utensils className="h-5 w-5" />
-              </span>
+              <Image alt="AAHAR" height={48} src="/favicon.svg" width={48} />
               <div>
                 <p className="text-lg font-semibold leading-5">AAHAR</p>
                 <p className="text-xs font-medium text-slate-500">Max Healthcare</p>
@@ -199,7 +221,11 @@ export default function LoginPage() {
                 void (isOtpStep ? handleVerifyOtp : handleSendOtp)(event);
               }}
             >
-              <Field error={form.formState.errors.mobile?.message} label="Mobile Number" name="mobile">
+              <Field
+                error={form.formState.errors.mobile?.message}
+                label="Mobile Number"
+                name="mobile"
+              >
                 <Input
                   autoComplete="tel"
                   inputMode="numeric"
