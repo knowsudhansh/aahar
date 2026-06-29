@@ -11,6 +11,13 @@ export const kitchenItemInclude = {
       itemName: true,
       itemType: true,
       type: true,
+      category: {
+        select: {
+          categoryName: true,
+          id: true,
+          isActive: true,
+        },
+      },
     },
   },
   kitchen: {

@@ -9,6 +9,8 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type {
   Hospital,
+  Item,
+  ItemType,
   Kitchen,
   KitchenItem,
   KitchenProduction,
@@ -338,6 +340,22 @@ function useKitchens(hospitalId?: string) {
       return response.data.items;
     },
     queryKey: ['kitchen-kitchens', hospitalId],
+  });
+}
+
+function useItems(itemType?: ItemType) {
+  return useQuery<Item[]>({
+    queryFn: async () => {
+      const response = await organizationApi.listItems({
+        itemType,
+        limit: 200,
+        sortBy: 'itemName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['kitchen-stock-items', itemType ?? 'all'],
   });
 }
 
@@ -1103,27 +1121,45 @@ export function KitchenStockPageClient() {
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
   const [kitchenFilter, setKitchenFilter] = useState('');
+  const [itemFilter, setItemFilter] = useState('');
+  const [businessDateFilter, setBusinessDateFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | StockBalanceStatus>('');
+  const [sortBy, setSortBy] = useState('lastUpdatedOn');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const hospitalsQuery = useHospitals();
   const kitchensQuery = useKitchens(hospitalFilter);
+  const itemOptionsQuery = useItems('READYMADE');
 
   const stockQuery = useQuery({
     queryFn: async () => {
       const response = await organizationApi.listKitchenStock({
+        businessDate: businessDateFilter || undefined,
         hospitalId: hospitalFilter,
+        itemId: itemFilter,
         itemType: 'READYMADE',
         limit: listLimit,
         locationId: kitchenFilter,
         page,
         search,
-        sortBy: 'lastUpdatedOn',
-        sortOrder: 'desc',
+        sortBy,
+        sortOrder,
         status: statusFilter || undefined,
       });
 
       return response.data;
     },
-    queryKey: ['kitchen-stock', page, search, hospitalFilter, kitchenFilter, statusFilter],
+    queryKey: [
+      'kitchen-stock',
+      page,
+      search,
+      hospitalFilter,
+      kitchenFilter,
+      itemFilter,
+      businessDateFilter,
+      statusFilter,
+      sortBy,
+      sortOrder,
+    ],
   });
 
   const items = stockQuery.data?.items ?? [];
@@ -1136,7 +1172,7 @@ export function KitchenStockPageClient() {
         title="Kitchen Stock"
       />
       <Panel>
-        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto]">
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_170px_170px_180px_150px_150px_160px_130px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
@@ -1175,6 +1211,48 @@ export function KitchenStockPageClient() {
                 {formatEnum(status)}
               </option>
             ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setItemFilter(event.target.value);
+              setPage(1);
+            }}
+            value={itemFilter}
+          >
+            <option value="">All items</option>
+            {itemOptionsQuery.data?.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.itemName}
+              </option>
+            ))}
+          </Select>
+          <Input
+            onChange={(event) => {
+              setBusinessDateFilter(event.target.value);
+              setPage(1);
+            }}
+            type="date"
+            value={businessDateFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="lastUpdatedOn">Last updated</option>
+            <option value="availableQty">Available qty</option>
+          </Select>
+          <Select
+            onChange={(event) => {
+              setSortOrder(event.target.value as SortOrder);
+              setPage(1);
+            }}
+            value={sortOrder}
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
           </Select>
           <Button onClick={() => void stockQuery.refetch()} type="button" variant="outline">
             <RefreshCw className="h-4 w-4" />

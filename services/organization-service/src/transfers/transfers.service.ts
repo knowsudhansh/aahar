@@ -574,7 +574,7 @@ export class TransfersService {
       const expiryDate = toNullableDate(line.expiryDate);
 
       if (!item) {
-        throw new BadRequestException(`${lineLabel}: item not found or inactive`);
+        throw new BadRequestException(`${lineLabel}: This item is inactive and cannot be used.`);
       }
 
       if (item.itemType !== expectedItemType) {

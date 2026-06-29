@@ -21,6 +21,25 @@ export class StockLedgersController {
 }
 
 @ApiBearerAuth('access-token')
+@ApiTags('store-stock')
+@Controller('store-stock/summary')
+export class StoreStockSummaryController {
+  constructor(private readonly stock: StockService) {}
+
+  @Get()
+  @Permissions('STOCK_VIEW')
+  @ApiOperation({ summary: 'Get grouped store stock by store and item' })
+  @ApiOkResponse({ description: 'Grouped store stock returned successfully.' })
+  async list(@Query() query: ListStockBalancesQueryDto) {
+    return {
+      data: await this.stock.listStoreSummaries(query),
+      message: 'Success',
+      success: true,
+    };
+  }
+}
+
+@ApiBearerAuth('access-token')
 @ApiTags('stock-balances')
 @Controller('stock-balances')
 export class StockBalancesController {

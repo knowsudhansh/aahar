@@ -12,6 +12,7 @@ import {
   CookingPot,
   CreditCard,
   LayoutDashboard,
+  ListChecks,
   LogOut,
   Menu,
   MapPin,
@@ -133,6 +134,12 @@ const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
         href: '/inventory/store-stock',
         icon: Boxes,
         label: 'Store Stock',
+        permissions: ['STOCK_VIEW'],
+      },
+      {
+        href: '/inventory/stock-ledgers',
+        icon: ListChecks,
+        label: 'Stock Ledgers',
         permissions: ['STOCK_VIEW'],
       },
       {

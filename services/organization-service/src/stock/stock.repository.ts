@@ -19,6 +19,13 @@ export const stockLedgerInclude = {
       itemName: true,
       itemType: true,
       type: true,
+      category: {
+        select: {
+          categoryName: true,
+          id: true,
+          isActive: true,
+        },
+      },
     },
   },
 } satisfies Prisma.StockLedgerInclude;
@@ -40,6 +47,13 @@ export const stockBalanceInclude = {
       itemName: true,
       itemType: true,
       type: true,
+      category: {
+        select: {
+          categoryName: true,
+          id: true,
+          isActive: true,
+        },
+      },
     },
   },
 } satisfies Prisma.StockBalanceInclude;

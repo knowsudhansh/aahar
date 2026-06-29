@@ -10,6 +10,11 @@ export class ListStoreItemsQueryDto extends ActivePaginationQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
+  hospitalId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
   storeId?: string;
 
   @ApiPropertyOptional()

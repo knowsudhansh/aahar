@@ -57,8 +57,11 @@ export class RestaurantMenusService {
     const where: Prisma.RestaurantMenuWhereInput = {
       deletedAt: null,
       ...(query.dayOfWeek ? { daysOfWeek: { has: query.dayOfWeek } } : {}),
+      ...(query.hospitalId ? { hospitalId: query.hospitalId } : {}),
+      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(query.isAvailable !== undefined ? { isAvailable: query.isAvailable } : {}),
       ...(query.itemId ? { itemId: query.itemId } : {}),
+      ...(query.itemType ? { item: { itemType: query.itemType } } : {}),
       ...(query.restaurantId ? { restaurantId: query.restaurantId } : {}),
       ...(query.timeSlotId ? { timeSlotIds: { has: query.timeSlotId } } : {}),
       ...(query.search
@@ -122,6 +125,7 @@ export class RestaurantMenusService {
             daysOfWeek,
             displayOrder,
             hospitalId: restaurant.hospitalId,
+            isActive: dto.isActive ?? true,
             isAvailable: dto.isAvailable ?? true,
             itemId: dto.itemId,
             restaurantId: dto.restaurantId,
@@ -210,6 +214,10 @@ export class RestaurantMenusService {
           data.isAvailable = dto.isAvailable;
         }
 
+        if (dto.isActive !== undefined) {
+          data.isActive = dto.isActive;
+        }
+
         if (Object.keys(data).length > 0) {
           data.updatedBy = context.actorId;
         }
@@ -222,7 +230,9 @@ export class RestaurantMenusService {
         await this.auditLog.record(
           {
             action:
-              dto.isAvailable !== undefined && dto.isAvailable !== existing.isAvailable
+              dto.isActive !== undefined && dto.isActive !== existing.isActive
+                ? 'RESTAURANT_MENU_STATUS_CHANGE'
+                : dto.isAvailable !== undefined && dto.isAvailable !== existing.isAvailable
                 ? 'RESTAURANT_MENU_AVAILABILITY_CHANGE'
                 : 'RESTAURANT_MENU_UPDATE',
             actorId: context.actorId,
@@ -252,6 +262,7 @@ export class RestaurantMenusService {
         id,
         {
           deletedAt: new Date(),
+          isActive: false,
           isAvailable: false,
           updatedBy: context.actorId,
         },
@@ -295,8 +306,12 @@ export class RestaurantMenusService {
   private async assertValidItem(itemId: string, client: RestaurantMenuClient): Promise<void> {
     const item = await this.restaurantMenus.findActiveItem(itemId, client);
 
-    if (!item || !item.isActive) {
-      throw new BadRequestException('Item not found or inactive');
+    if (!item) {
+      throw new BadRequestException('Item not found');
+    }
+
+    if (!item.isActive) {
+      throw new BadRequestException('This item is inactive and cannot be used.');
     }
   }
 
@@ -417,6 +432,7 @@ export class RestaurantMenusService {
       displayOrder: mapping.displayOrder,
       hospitalId: mapping.hospitalId,
       id: mapping.id,
+      isActive: mapping.isActive,
       isAvailable: mapping.isAvailable,
       item: mapping.item,
       itemId: mapping.itemId,

@@ -10,6 +10,11 @@ export class ListKitchenItemsQueryDto extends ActivePaginationQueryDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsUUID()
+  hospitalId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
   kitchenId?: string;
 
   @ApiPropertyOptional()

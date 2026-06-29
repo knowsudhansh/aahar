@@ -254,8 +254,12 @@ export class ItemsService {
   private async assertActiveCategory(id: string, client: ItemClient): Promise<void> {
     const category = await this.items.findActiveCategory(id, client);
 
-    if (!category || !category.isActive) {
-      throw new BadRequestException('Item category not found or inactive');
+    if (!category) {
+      throw new BadRequestException('Item category not found');
+    }
+
+    if (!category.isActive) {
+      throw new BadRequestException('This category is inactive and cannot be used for new items.');
     }
   }
 

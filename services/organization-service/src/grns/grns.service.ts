@@ -599,9 +599,7 @@ export class GrnsService {
       const lineLabel = `Line ${index + 1}`;
 
       if (!item) {
-        throw new BadRequestException(
-          `${lineLabel}: item must be an active MRP item mapped to the selected store`,
-        );
+        throw new BadRequestException(`${lineLabel}: This store item mapping is inactive.`);
       }
 
       if (item.itemType !== ItemType.MRP) {

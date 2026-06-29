@@ -62,6 +62,11 @@ export class CreateRestaurantMenuDto {
   @IsOptional()
   isAvailable?: boolean;
 
+  @ApiPropertyOptional({ default: true })
+  @IsBoolean()
+  @IsOptional()
+  isActive?: boolean;
+
   @ApiPropertyOptional({
     default: RestaurantMenuPositionType.LAST,
     enum: RestaurantMenuPositionType,

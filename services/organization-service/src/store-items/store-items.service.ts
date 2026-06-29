@@ -43,6 +43,7 @@ export class StoreItemsService {
     const { limit, page } = getPagination(query);
     const where: Prisma.StoreItemWhereInput = {
       deletedAt: null,
+      ...(query.hospitalId ? { store: { hospitalId: query.hospitalId } } : {}),
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(query.itemId ? { itemId: query.itemId } : {}),
       ...(query.storeId ? { storeId: query.storeId } : {}),
@@ -219,8 +220,12 @@ export class StoreItemsService {
   private async assertValidMrpItem(itemId: string, client: StoreItemClient): Promise<void> {
     const item = await this.storeItems.findActiveItem(itemId, client);
 
-    if (!item || !item.isActive) {
-      throw new BadRequestException('Item not found or inactive');
+    if (!item) {
+      throw new BadRequestException('Item not found');
+    }
+
+    if (!item.isActive) {
+      throw new BadRequestException('This item is inactive and cannot be used.');
     }
 
     if (item.itemType !== ItemType.MRP) {
@@ -231,7 +236,11 @@ export class StoreItemsService {
   private async assertValidStore(storeId: string, client: StoreItemClient): Promise<void> {
     const store = await this.storeItems.findActiveStore(storeId, client);
 
-    if (!store || !store.isActive) {
+    if (!store) {
+      throw new BadRequestException('Store not found or inactive');
+    }
+
+    if (!store.isActive) {
       throw new BadRequestException('Store not found or inactive');
     }
   }

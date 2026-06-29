@@ -7,6 +7,7 @@ import {
   RestaurantStockLedgersController,
   StockBalancesController,
   StockLedgersController,
+  StoreStockSummaryController,
 } from './stock.controller';
 import { StockRepository } from './stock.repository';
 import { StockService } from './stock.service';
@@ -14,6 +15,7 @@ import { StockService } from './stock.service';
 @Module({
   controllers: [
     StockLedgersController,
+    StoreStockSummaryController,
     StockBalancesController,
     RestaurantStockLedgersController,
     RestaurantStockController,

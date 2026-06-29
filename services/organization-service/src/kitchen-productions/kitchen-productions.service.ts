@@ -573,9 +573,7 @@ export class KitchenProductionsService {
       const acceptedQty = line.acceptedQty ?? Number((line.producedQty - wastageQty).toFixed(3));
 
       if (!item) {
-        throw new BadRequestException(
-          `${lineLabel}: item must be an active READYMADE item mapped to the selected kitchen`,
-        );
+        throw new BadRequestException(`${lineLabel}: This kitchen item mapping is inactive.`);
       }
 
       if (item.itemType !== ItemType.READYMADE) {

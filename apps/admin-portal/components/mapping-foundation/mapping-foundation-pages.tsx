@@ -21,6 +21,7 @@ import { z, type ZodError } from 'zod';
 import type {
   ApiList,
   ApiResponse,
+  Hospital,
   Item,
   ItemType,
   Kitchen,
@@ -162,6 +163,7 @@ type ActiveFilter = '' | 'active' | 'inactive';
 type AvailabilityFilter = '' | 'available' | 'unavailable';
 type AlwaysAvailableFilter = '' | 'always' | 'scheduled';
 type DayFilter = '' | RestaurantMenuDayOfWeek;
+type ItemTypeFilter = '' | ItemType;
 type TimeSlotFormValues = z.infer<typeof timeSlotSchema>;
 
 interface MappingFormValues {
@@ -289,6 +291,33 @@ function StatusBadge({ isActive }: Readonly<{ isActive: boolean }>) {
   );
 }
 
+function StatusToggleButton({
+  isActive,
+  isPending,
+  onToggle,
+}: Readonly<{
+  isActive: boolean;
+  isPending: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <Button
+      className={
+        isActive
+          ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+          : 'border-teal-200 text-teal-700 hover:bg-teal-50'
+      }
+      disabled={isPending}
+      onClick={onToggle}
+      size="sm"
+      type="button"
+      variant="outline"
+    >
+      {isActive ? 'Turn inactive' : 'Turn active'}
+    </Button>
+  );
+}
+
 function BooleanBadge({
   falseLabel,
   trueLabel,
@@ -366,6 +395,27 @@ function SortOrderSelect({
     <Select onChange={(event) => onChange(event.target.value as SortOrder)} value={value}>
       <option value="desc">Newest first</option>
       <option value="asc">Oldest first</option>
+    </Select>
+  );
+}
+
+function HospitalFilterSelect({
+  hospitals,
+  onChange,
+  value,
+}: Readonly<{
+  hospitals: Hospital[];
+  onChange: (value: string) => void;
+  value: string;
+}>) {
+  return (
+    <Select onChange={(event) => onChange(event.target.value)} value={value}>
+      <option value="">All locations</option>
+      {hospitals.map((hospital) => (
+        <option key={hospital.id} value={hospital.id}>
+          {hospital.displayName || hospital.hospitalName}
+        </option>
+      ))}
     </Select>
   );
 }
@@ -502,10 +552,27 @@ function useEntityList<TItem, TQuery extends ListQuery>(
   });
 }
 
-function useStoreOptions() {
+function useHospitalOptions() {
+  return useQuery<Hospital[]>({
+    queryFn: async () => {
+      const response = await organizationApi.listHospitals({
+        isActive: true,
+        limit: 100,
+        sortBy: 'hospitalName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['mapping-hospital-options'],
+  });
+}
+
+function useStoreOptions(hospitalId?: string) {
   return useQuery<Store[]>({
     queryFn: async () => {
       const response = await organizationApi.listStores({
+        hospitalId: hospitalId || undefined,
         isActive: true,
         limit: 100,
         sortBy: 'storeName',
@@ -514,14 +581,15 @@ function useStoreOptions() {
 
       return response.data.items;
     },
-    queryKey: ['store-options'],
+    queryKey: ['store-options', hospitalId ?? 'all'],
   });
 }
 
-function useKitchenOptions() {
+function useKitchenOptions(hospitalId?: string) {
   return useQuery<Kitchen[]>({
     queryFn: async () => {
       const response = await organizationApi.listKitchens({
+        hospitalId: hospitalId || undefined,
         isActive: true,
         limit: 100,
         sortBy: 'kitchenName',
@@ -530,14 +598,15 @@ function useKitchenOptions() {
 
       return response.data.items;
     },
-    queryKey: ['kitchen-options'],
+    queryKey: ['kitchen-options', hospitalId ?? 'all'],
   });
 }
 
-function useRestaurantOptions() {
+function useRestaurantOptions(hospitalId?: string) {
   return useQuery<Restaurant[]>({
     queryFn: async () => {
       const response = await organizationApi.listRestaurants({
+        hospitalId: hospitalId || undefined,
         isActive: true,
         limit: 100,
         sortBy: 'restaurantName',
@@ -546,7 +615,7 @@ function useRestaurantOptions() {
 
       return response.data.items;
     },
-    queryKey: ['restaurant-options'],
+    queryKey: ['restaurant-options', hospitalId ?? 'all'],
   });
 }
 
@@ -1234,13 +1303,15 @@ export function StoreItemsPageClient() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
   const [itemFilter, setItemFilter] = useState('');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [editingMapping, setEditingMapping] = useState<StoreItem | null>(null);
   const form = useForm<MappingFormValues>({ defaultValues: emptyMappingFormValues() });
-  const storesQuery = useStoreOptions();
+  const hospitalsQuery = useHospitalOptions();
+  const storesQuery = useStoreOptions(hospitalFilter);
   const itemsQuery = useItemOptions('MRP');
   const invalidateStoreItems = useInvalidateMappingQueries('store-items', 'store-options');
   const { showToast } = useToast();
@@ -1249,6 +1320,7 @@ export function StoreItemsPageClient() {
     'store-items',
     {
       isActive: activeFilterToBoolean(activeFilter),
+      hospitalId: hospitalFilter,
       itemId: itemFilter,
       limit: listLimit,
       page,
@@ -1295,6 +1367,25 @@ export function StoreItemsPageClient() {
     onSuccess() {
       invalidateStoreItems();
       showToast({ title: 'Store item deleted', variant: 'success' });
+    },
+  });
+
+  const toggleMappingStatusMutation = useMutation({
+    mutationFn: ({ isActive, mapping }: { isActive: boolean; mapping: StoreItem }) =>
+      organizationApi.updateStoreItem(mapping.id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Store item status was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(_response, variables) {
+      invalidateStoreItems();
+      showToast({
+        title: variables.isActive ? 'Store item mapping activated' : 'Store item mapping inactive',
+        variant: 'success',
+      });
     },
   });
 
@@ -1351,6 +1442,21 @@ export function StoreItemsPageClient() {
     }
   }
 
+  function toggleMappingStatus(mapping: StoreItem) {
+    const nextIsActive = !mapping.isActive;
+
+    if (
+      !nextIsActive &&
+      !window.confirm(
+        'Turning this mapping inactive will prevent this item from being used in new GRNs for this store. Existing stock and history will remain visible. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    toggleMappingStatusMutation.mutate({ isActive: nextIsActive, mapping });
+  }
+
   return (
     <section className="space-y-6">
       <PageHeader
@@ -1392,7 +1498,7 @@ export function StoreItemsPageClient() {
         </form>
       </Panel>
       <Panel>
-        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_150px_180px_180px_170px_130px_auto]">
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_150px_180px_180px_180px_170px_130px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
@@ -1406,6 +1512,15 @@ export function StoreItemsPageClient() {
               setPage(1);
             }}
             value={activeFilter}
+          />
+          <HospitalFilterSelect
+            hospitals={hospitalsQuery.data ?? []}
+            onChange={(value) => {
+              setHospitalFilter(value);
+              setStoreFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
           />
           <Select
             onChange={(event) => {
@@ -1461,12 +1576,14 @@ export function StoreItemsPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
-                <th className="w-[18%] px-4 py-3">Store</th>
-                <th className="w-[18%] px-4 py-3">Item</th>
-                <th className="w-[12%] px-4 py-3">Item Type</th>
+                <th className="w-[15%] px-4 py-3">Location</th>
+                <th className="w-[15%] px-4 py-3">Store</th>
+                <th className="w-[16%] px-4 py-3">Item</th>
+                <th className="w-[12%] px-4 py-3">Category</th>
                 <th className="w-[10%] px-4 py-3">Status</th>
-                <th className="w-[16%] px-4 py-3">Created Date Time</th>
-                <th className="w-[16%] px-4 py-3">Updated Date Time</th>
+                <th className="w-[14%] px-4 py-3">Active / Inactive</th>
+                <th className="w-[15%] px-4 py-3">Created Date Time</th>
+                <th className="w-[15%] px-4 py-3">Updated Date Time</th>
                 <th className="w-[18%] px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -1474,6 +1591,14 @@ export function StoreItemsPageClient() {
               {mappings.length > 0 ? (
                 mappings.map((mapping) => (
                   <tr className="hover:bg-slate-50" key={mapping.id}>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">
+                        {mapping.store.hospital.hospitalName}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {mapping.store.hospital.hospitalCode}
+                      </p>
+                    </td>
                     <td className="px-4 py-4">
                       <p className="font-medium text-slate-950">{mapping.store.storeName}</p>
                       <p className="text-xs text-slate-500">{mapping.store.storeCode}</p>
@@ -1483,10 +1608,17 @@ export function StoreItemsPageClient() {
                       <p className="text-xs text-slate-500">{mapping.item.itemCode}</p>
                     </td>
                     <td className="px-4 py-4 text-slate-600">
-                      {formatEnum(mapping.item.itemType)}
+                      {mapping.item.category?.categoryName ?? '-'}
                     </td>
                     <td className="px-4 py-4">
                       <StatusBadge isActive={mapping.isActive} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleButton
+                        isActive={mapping.isActive}
+                        isPending={toggleMappingStatusMutation.isPending}
+                        onToggle={() => toggleMappingStatus(mapping)}
+                      />
                     </td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(mapping.createdAt)}</td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(mapping.updatedAt)}</td>
@@ -1518,7 +1650,7 @@ export function StoreItemsPageClient() {
                 ))
               ) : (
                 <QueryState
-                  colSpan={7}
+                  colSpan={9}
                   error={mappingsQuery.error}
                   isError={mappingsQuery.isError}
                   isLoading={mappingsQuery.isLoading}
@@ -1544,13 +1676,15 @@ export function KitchenItemsPageClient() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
   const [kitchenFilter, setKitchenFilter] = useState('');
   const [itemFilter, setItemFilter] = useState('');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [editingMapping, setEditingMapping] = useState<KitchenItem | null>(null);
   const form = useForm<MappingFormValues>({ defaultValues: emptyMappingFormValues() });
-  const kitchensQuery = useKitchenOptions();
+  const hospitalsQuery = useHospitalOptions();
+  const kitchensQuery = useKitchenOptions(hospitalFilter);
   const itemsQuery = useItemOptions('READYMADE');
   const invalidateKitchenItems = useInvalidateMappingQueries('kitchen-items', 'kitchen-options');
   const { showToast } = useToast();
@@ -1559,6 +1693,7 @@ export function KitchenItemsPageClient() {
     'kitchen-items',
     {
       isActive: activeFilterToBoolean(activeFilter),
+      hospitalId: hospitalFilter,
       itemId: itemFilter,
       kitchenId: kitchenFilter,
       limit: listLimit,
@@ -1605,6 +1740,27 @@ export function KitchenItemsPageClient() {
     onSuccess() {
       invalidateKitchenItems();
       showToast({ title: 'Kitchen item deleted', variant: 'success' });
+    },
+  });
+
+  const toggleMappingStatusMutation = useMutation({
+    mutationFn: ({ isActive, mapping }: { isActive: boolean; mapping: KitchenItem }) =>
+      organizationApi.updateKitchenItem(mapping.id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Kitchen item status was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(_response, variables) {
+      invalidateKitchenItems();
+      showToast({
+        title: variables.isActive
+          ? 'Kitchen item mapping activated'
+          : 'Kitchen item mapping inactive',
+        variant: 'success',
+      });
     },
   });
 
@@ -1661,6 +1817,21 @@ export function KitchenItemsPageClient() {
     }
   }
 
+  function toggleMappingStatus(mapping: KitchenItem) {
+    const nextIsActive = !mapping.isActive;
+
+    if (
+      !nextIsActive &&
+      !window.confirm(
+        'Turning this mapping inactive will prevent this item from being used in new kitchen production. Existing stock and history will remain visible. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    toggleMappingStatusMutation.mutate({ isActive: nextIsActive, mapping });
+  }
+
   return (
     <section className="space-y-6">
       <PageHeader
@@ -1704,7 +1875,7 @@ export function KitchenItemsPageClient() {
         </form>
       </Panel>
       <Panel>
-        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_150px_180px_180px_170px_130px_auto]">
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_150px_180px_180px_180px_170px_130px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
@@ -1718,6 +1889,15 @@ export function KitchenItemsPageClient() {
               setPage(1);
             }}
             value={activeFilter}
+          />
+          <HospitalFilterSelect
+            hospitals={hospitalsQuery.data ?? []}
+            onChange={(value) => {
+              setHospitalFilter(value);
+              setKitchenFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
           />
           <Select
             onChange={(event) => {
@@ -1773,12 +1953,14 @@ export function KitchenItemsPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
-                <th className="w-[18%] px-4 py-3">Kitchen</th>
-                <th className="w-[18%] px-4 py-3">Item</th>
-                <th className="w-[12%] px-4 py-3">Item Type</th>
+                <th className="w-[15%] px-4 py-3">Location</th>
+                <th className="w-[15%] px-4 py-3">Kitchen</th>
+                <th className="w-[16%] px-4 py-3">Item</th>
+                <th className="w-[12%] px-4 py-3">Category</th>
                 <th className="w-[10%] px-4 py-3">Status</th>
-                <th className="w-[16%] px-4 py-3">Created Date Time</th>
-                <th className="w-[16%] px-4 py-3">Updated Date Time</th>
+                <th className="w-[14%] px-4 py-3">Active / Inactive</th>
+                <th className="w-[15%] px-4 py-3">Created Date Time</th>
+                <th className="w-[15%] px-4 py-3">Updated Date Time</th>
                 <th className="w-[18%] px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -1786,6 +1968,14 @@ export function KitchenItemsPageClient() {
               {mappings.length > 0 ? (
                 mappings.map((mapping) => (
                   <tr className="hover:bg-slate-50" key={mapping.id}>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">
+                        {mapping.kitchen.hospital.hospitalName}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {mapping.kitchen.hospital.hospitalCode}
+                      </p>
+                    </td>
                     <td className="px-4 py-4">
                       <p className="font-medium text-slate-950">{mapping.kitchen.kitchenName}</p>
                       <p className="text-xs text-slate-500">{mapping.kitchen.kitchenCode}</p>
@@ -1795,10 +1985,17 @@ export function KitchenItemsPageClient() {
                       <p className="text-xs text-slate-500">{mapping.item.itemCode}</p>
                     </td>
                     <td className="px-4 py-4 text-slate-600">
-                      {formatEnum(mapping.item.itemType)}
+                      {mapping.item.category?.categoryName ?? '-'}
                     </td>
                     <td className="px-4 py-4">
                       <StatusBadge isActive={mapping.isActive} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleButton
+                        isActive={mapping.isActive}
+                        isPending={toggleMappingStatusMutation.isPending}
+                        onToggle={() => toggleMappingStatus(mapping)}
+                      />
                     </td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(mapping.createdAt)}</td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(mapping.updatedAt)}</td>
@@ -1830,7 +2027,7 @@ export function KitchenItemsPageClient() {
                 ))
               ) : (
                 <QueryState
-                  colSpan={7}
+                  colSpan={9}
                   error={mappingsQuery.error}
                   isError={mappingsQuery.isError}
                   isLoading={mappingsQuery.isLoading}
@@ -1855,8 +2052,11 @@ export function KitchenItemsPageClient() {
 export function RestaurantMenusPageClient() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
   const [availabilityFilter, setAvailabilityFilter] = useState<AvailabilityFilter>('');
   const [dayFilter, setDayFilter] = useState<DayFilter>('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('');
   const [restaurantFilter, setRestaurantFilter] = useState('');
   const [itemFilter, setItemFilter] = useState('');
   const [timeSlotFilter, setTimeSlotFilter] = useState('');
@@ -1866,8 +2066,10 @@ export function RestaurantMenusPageClient() {
   const form = useForm<RestaurantMenuFormValues>({
     defaultValues: emptyRestaurantMenuFormValues(),
   });
-  const restaurantsQuery = useRestaurantOptions();
+  const hospitalsQuery = useHospitalOptions();
+  const restaurantsQuery = useRestaurantOptions(hospitalFilter);
   const itemsQuery = useItemOptions();
+  const filterItemsQuery = useItemOptions(itemTypeFilter || undefined);
   const timeSlotsQuery = useTimeSlotOptions();
   const selectedRestaurantId = form.watch('restaurantId');
   const queryClient = useQueryClient();
@@ -1892,8 +2094,11 @@ export function RestaurantMenusPageClient() {
     queryFn: async () => {
       const response = await organizationApi.listRestaurantMenus({
         dayOfWeek: dayFilter || undefined,
+        hospitalId: hospitalFilter || undefined,
+        isActive: activeFilterToBoolean(activeFilter),
         isAvailable: availabilityFilterToBoolean(availabilityFilter),
         itemId: itemFilter,
+        itemType: itemTypeFilter || undefined,
         limit: listLimit,
         page,
         restaurantId: restaurantFilter,
@@ -1909,8 +2114,11 @@ export function RestaurantMenusPageClient() {
       'restaurant-menus',
       {
         availabilityFilter,
+        activeFilter,
         dayFilter,
+        hospitalFilter,
         itemFilter,
+        itemTypeFilter,
         page,
         restaurantFilter,
         search,
@@ -1957,6 +2165,28 @@ export function RestaurantMenusPageClient() {
     onSuccess() {
       void queryClient.invalidateQueries({ queryKey: ['restaurant-menus'] });
       showToast({ title: 'Restaurant menu deleted', variant: 'success' });
+    },
+  });
+
+  const toggleMenuStatusMutation = useMutation({
+    mutationFn: ({ isActive, menu }: { isActive: boolean; menu: RestaurantMenu }) =>
+      organizationApi.updateRestaurantMenu(menu.id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Restaurant menu status was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(_response, variables) {
+      void queryClient.invalidateQueries({ queryKey: ['restaurant-menus'] });
+      void queryClient.invalidateQueries({ queryKey: ['restaurant-menu-reference-options'] });
+      showToast({
+        title: variables.isActive
+          ? 'Restaurant menu mapping activated'
+          : 'Restaurant menu mapping inactive',
+        variant: 'success',
+      });
     },
   });
 
@@ -2017,6 +2247,21 @@ export function RestaurantMenusPageClient() {
     }
   }
 
+  function toggleMenuStatus(menu: RestaurantMenu) {
+    const nextIsActive = !menu.isActive;
+
+    if (
+      !nextIsActive &&
+      !window.confirm(
+        'Turning this menu mapping inactive will hide this item from future restaurant menus and POS. Existing records will remain visible. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    toggleMenuStatusMutation.mutate({ isActive: nextIsActive, menu });
+  }
+
   return (
     <section className="space-y-6">
       <PageHeader
@@ -2059,13 +2304,20 @@ export function RestaurantMenusPageClient() {
         </form>
       </Panel>
       <Panel>
-        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_160px_180px_180px_170px_170px_170px_130px_auto]">
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_150px_150px_170px_170px_150px_170px_150px_150px_130px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
               setPage(1);
             }}
             value={search}
+          />
+          <ActiveFilterSelect
+            onChange={(value) => {
+              setActiveFilter(value);
+              setPage(1);
+            }}
+            value={activeFilter}
           />
           <Select
             onChange={(event) => {
@@ -2078,6 +2330,15 @@ export function RestaurantMenusPageClient() {
             <option value="available">Available</option>
             <option value="unavailable">Unavailable</option>
           </Select>
+          <HospitalFilterSelect
+            hospitals={hospitalsQuery.data ?? []}
+            onChange={(value) => {
+              setHospitalFilter(value);
+              setRestaurantFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          />
           <Select
             onChange={(event) => {
               setRestaurantFilter(event.target.value);
@@ -2094,13 +2355,28 @@ export function RestaurantMenusPageClient() {
           </Select>
           <Select
             onChange={(event) => {
+              setItemTypeFilter(event.target.value as ItemTypeFilter);
+              setItemFilter('');
+              setPage(1);
+            }}
+            value={itemTypeFilter}
+          >
+            <option value="">All item types</option>
+            {['MRP', 'READYMADE', 'LIVE'].map((itemType) => (
+              <option key={itemType} value={itemType}>
+                {formatEnum(itemType)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
               setItemFilter(event.target.value);
               setPage(1);
             }}
             value={itemFilter}
           >
             <option value="">All items</option>
-            {itemsQuery.data?.map((item) => (
+            {filterItemsQuery.data?.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.itemName}
               </option>
@@ -2143,6 +2419,7 @@ export function RestaurantMenusPageClient() {
           >
             <option value="displayOrder">Display order</option>
             <option value="createdAt">Created date</option>
+            <option value="isActive">Status</option>
             <option value="isAvailable">Availability</option>
             <option value="updatedAt">Updated date</option>
           </Select>
@@ -2161,14 +2438,17 @@ export function RestaurantMenusPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
-                <th className="w-[16%] px-4 py-3">Restaurant</th>
-                <th className="w-[16%] px-4 py-3">Item</th>
-                <th className="w-[12%] px-4 py-3">Time Slot</th>
+                <th className="w-[14%] px-4 py-3">Location</th>
+                <th className="w-[14%] px-4 py-3">Restaurant</th>
+                <th className="w-[15%] px-4 py-3">Item</th>
+                <th className="w-[10%] px-4 py-3">Item Type</th>
+                <th className="w-[13%] px-4 py-3">Time Slots</th>
                 <th className="w-[12%] px-4 py-3">Days</th>
-                <th className="w-[10%] px-4 py-3">Order</th>
                 <th className="w-[10%] px-4 py-3">Available</th>
-                <th className="w-[16%] px-4 py-3">Created Date Time</th>
-                <th className="w-[16%] px-4 py-3">Updated Date Time</th>
+                <th className="w-[10%] px-4 py-3">Status</th>
+                <th className="w-[14%] px-4 py-3">Active / Inactive</th>
+                <th className="w-[15%] px-4 py-3">Created Date Time</th>
+                <th className="w-[15%] px-4 py-3">Updated Date Time</th>
                 <th className="w-[18%] px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -2177,14 +2457,23 @@ export function RestaurantMenusPageClient() {
                 menus.map((menu) => (
                   <tr className="hover:bg-slate-50" key={menu.id}>
                     <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">
+                        {menu.restaurant.hospital.hospitalName}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {menu.restaurant.hospital.hospitalCode}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
                       <p className="font-medium text-slate-950">{menu.restaurant.restaurantName}</p>
                       <p className="text-xs text-slate-500">{menu.restaurant.restaurantCode}</p>
                     </td>
                     <td className="px-4 py-4">
                       <p className="font-medium text-slate-950">{menu.item.itemName}</p>
-                      <p className="text-xs text-slate-500">
-                        {menu.item.itemCode} - {formatEnum(menu.item.itemType)}
-                      </p>
+                      <p className="text-xs text-slate-500">{menu.item.itemCode}</p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {formatEnum(menu.item.itemType)}
                     </td>
                     <td className="px-4 py-4 text-slate-600">
                       {menu.timeSlots.length
@@ -2196,12 +2485,21 @@ export function RestaurantMenusPageClient() {
                         ? menu.daysOfWeek.map((day) => formatEnum(day)).join(', ')
                         : 'Every day'}
                     </td>
-                    <td className="px-4 py-4 text-slate-600">{menu.displayOrder}</td>
                     <td className="px-4 py-4">
                       <BooleanBadge
                         falseLabel="Unavailable"
                         trueLabel="Available"
                         value={menu.isAvailable}
+                      />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge isActive={menu.isActive} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleButton
+                        isActive={menu.isActive}
+                        isPending={toggleMenuStatusMutation.isPending}
+                        onToggle={() => toggleMenuStatus(menu)}
                       />
                     </td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(menu.createdAt)}</td>
@@ -2234,7 +2532,7 @@ export function RestaurantMenusPageClient() {
                 ))
               ) : (
                 <QueryState
-                  colSpan={9}
+                  colSpan={12}
                   error={menusQuery.error}
                   isError={menusQuery.isError}
                   isLoading={menusQuery.isLoading}

@@ -644,7 +644,9 @@ export interface TimeSlotListQuery extends ListQuery {
 export type ItemSummary = Pick<
   Item,
   'id' | 'isActive' | 'itemCode' | 'itemName' | 'itemType' | 'type'
->;
+> & {
+  category?: Pick<ItemCategory, 'categoryName' | 'id' | 'isActive'>;
+};
 
 export interface StoreItem {
   createdAt: string;
@@ -667,6 +669,7 @@ export interface StoreItemInput {
 }
 
 export interface StoreItemListQuery extends ListQuery {
+  hospitalId?: string;
   itemId?: string;
   storeId?: string;
 }
@@ -692,6 +695,7 @@ export interface KitchenItemInput {
 }
 
 export interface KitchenItemListQuery extends ListQuery {
+  hospitalId?: string;
   itemId?: string;
   kitchenId?: string;
 }
@@ -714,6 +718,7 @@ export interface RestaurantMenu {
   displayOrder: number;
   hospitalId: string;
   id: string;
+  isActive: boolean;
   isAvailable: boolean;
   item: ItemSummary;
   itemId: string;
@@ -730,6 +735,7 @@ export interface RestaurantMenu {
 
 export interface RestaurantMenuInput {
   daysOfWeek?: RestaurantMenuDayOfWeek[];
+  isActive?: boolean;
   isAvailable?: boolean;
   itemId: string;
   positionType?: RestaurantMenuPositionType;
@@ -740,8 +746,10 @@ export interface RestaurantMenuInput {
 
 export interface RestaurantMenuListQuery extends ListQuery {
   dayOfWeek?: RestaurantMenuDayOfWeek;
+  hospitalId?: string;
   isAvailable?: boolean;
   itemId?: string;
+  itemType?: ItemType;
   restaurantId?: string;
   timeSlotId?: string;
 }
@@ -900,6 +908,34 @@ export interface StockBalance {
   updatedAt: string;
 }
 
+export interface StoreStockBatchSummary {
+  availableQty: number;
+  batchNumber: string | null;
+  expiryDate: string | null;
+  reservedQty: number;
+  status: StockBalanceStatus;
+  stockBalanceId: string;
+}
+
+export interface StoreStockSummary {
+  batchCount: number;
+  batches: StoreStockBatchSummary[];
+  categoryName: string | null;
+  hospitalId: string;
+  itemCode: string;
+  itemId: string;
+  itemName: string;
+  itemType: ItemType;
+  lastUpdatedOn: string;
+  nearestExpiryDate: string | null;
+  status: StockBalanceStatus;
+  storeCode: string | null;
+  storeId: string;
+  storeName: string;
+  totalAvailableQty: number;
+  totalReservedQty: number;
+}
+
 export interface UserSummary {
   email: string | null;
   employeeCode: string | null;
@@ -1017,6 +1053,7 @@ export interface StockLedgerListQuery extends ListQuery {
   itemType?: ItemType;
   locationId?: string;
   locationType?: InventoryLocationType;
+  referenceType?: StockReferenceType;
   toDate?: string;
   transactionType?: StockTransactionType;
 }
@@ -1788,6 +1825,11 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     listStockLedgers(query?: StockLedgerListQuery) {
       return client.request<ApiResponse<ApiList<StockLedger>>>('/stock-ledgers', { query });
+    },
+    listStoreStockSummaries(query?: StockBalanceListQuery) {
+      return client.request<ApiResponse<ApiList<StoreStockSummary>>>('/store-stock/summary', {
+        query,
+      });
     },
     listRestaurantStock(query?: StockBalanceListQuery) {
       return client.request<ApiResponse<ApiList<StockBalance>>>('/restaurant-stock', { query });

@@ -193,6 +193,33 @@ function StatusBadge({ isActive }: Readonly<{ isActive: boolean }>) {
   );
 }
 
+function StatusToggleButton({
+  isActive,
+  isPending,
+  onToggle,
+}: Readonly<{
+  isActive: boolean;
+  isPending: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <Button
+      className={
+        isActive
+          ? 'border-amber-200 text-amber-700 hover:bg-amber-50'
+          : 'border-teal-200 text-teal-700 hover:bg-teal-50'
+      }
+      disabled={isPending}
+      onClick={onToggle}
+      size="sm"
+      type="button"
+      variant="outline"
+    >
+      {isActive ? 'Turn inactive' : 'Turn active'}
+    </Button>
+  );
+}
+
 function PageHeader({ action, eyebrow, icon: Icon, subtitle, title }: PageHeaderProps) {
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -741,6 +768,25 @@ export function ItemCategoriesPageClient() {
     },
   });
 
+  const toggleCategoryStatusMutation = useMutation({
+    mutationFn: ({ category, isActive }: { category: ItemCategory; isActive: boolean }) =>
+      organizationApi.updateItemCategory(category.id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Category status was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(_response, variables) {
+      invalidateItemCategoryQueries(queryClient);
+      showToast({
+        title: variables.isActive ? 'Category activated' : 'Category marked inactive',
+        variant: 'success',
+      });
+    },
+  });
+
   const items = categoriesQuery.data?.items ?? [];
   const meta = categoriesQuery.data?.meta ?? {
     limit: listLimit,
@@ -785,6 +831,21 @@ export function ItemCategoriesPageClient() {
     if (shouldDelete) {
       deleteCategoryMutation.mutate(category.id);
     }
+  }
+
+  function toggleCategoryStatus(category: ItemCategory) {
+    const nextIsActive = !category.isActive;
+
+    if (
+      !nextIsActive &&
+      !window.confirm(
+        'Turning this category inactive will prevent it from being used for new items. Existing records will remain visible. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    toggleCategoryStatusMutation.mutate({ category, isActive: nextIsActive });
   }
 
   return (
@@ -871,11 +932,12 @@ export function ItemCategoriesPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
-                <th className="w-[28%] px-4 py-3">Name</th>
-                <th className="w-[13%] px-4 py-3">Status</th>
-                <th className="w-[20%] px-4 py-3">Created Date Time</th>
-                <th className="w-[20%] px-4 py-3">Updated Date Time</th>
-                <th className="w-[19%] px-4 py-3">Actions</th>
+                <th className="w-[24%] px-4 py-3">Category Name</th>
+                <th className="w-[11%] px-4 py-3">Status</th>
+                <th className="w-[14%] px-4 py-3">Active / Inactive</th>
+                <th className="w-[18%] px-4 py-3">Created Date Time</th>
+                <th className="w-[18%] px-4 py-3">Updated Date Time</th>
+                <th className="w-[15%] px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -887,6 +949,13 @@ export function ItemCategoriesPageClient() {
                     </td>
                     <td className="px-4 py-4">
                       <StatusBadge isActive={category.isActive} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleButton
+                        isActive={category.isActive}
+                        isPending={toggleCategoryStatusMutation.isPending}
+                        onToggle={() => toggleCategoryStatus(category)}
+                      />
                     </td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(category.createdAt)}</td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(category.updatedAt)}</td>
@@ -918,7 +987,7 @@ export function ItemCategoriesPageClient() {
                 ))
               ) : (
                 <QueryState
-                  colSpan={5}
+                  colSpan={6}
                   error={categoriesQuery.error}
                   isError={categoriesQuery.isError}
                   isLoading={categoriesQuery.isLoading}
@@ -1113,6 +1182,25 @@ export function ItemsPageClient() {
     },
   });
 
+  const toggleItemStatusMutation = useMutation({
+    mutationFn: ({ isActive, item }: { isActive: boolean; item: Item }) =>
+      organizationApi.updateItem(item.id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Item status was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(_response, variables) {
+      invalidateItemQueries(queryClient);
+      showToast({
+        title: variables.isActive ? 'Item activated' : 'Item marked inactive',
+        variant: 'success',
+      });
+    },
+  });
+
   const items = itemsQuery.data?.items ?? [];
   const meta = itemsQuery.data?.meta ?? {
     limit: listLimit,
@@ -1156,6 +1244,21 @@ export function ItemsPageClient() {
     if (shouldDelete) {
       deleteItemMutation.mutate(item.id);
     }
+  }
+
+  function toggleItemStatus(item: Item) {
+    const nextIsActive = !item.isActive;
+
+    if (
+      !nextIsActive &&
+      !window.confirm(
+        'Turning this item inactive will prevent it from being used in new operations. Existing records will remain visible. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    toggleItemStatusMutation.mutate({ isActive: nextIsActive, item });
   }
 
   return (
@@ -1295,16 +1398,17 @@ export function ItemsPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
-                <th className="w-[19%] px-4 py-3">Item Name</th>
-                <th className="w-[14%] px-4 py-3">Category</th>
-                <th className="w-[11%] px-4 py-3">Type</th>
-                <th className="w-[12%] px-4 py-3">Item Type</th>
-                <th className="w-[12%] px-4 py-3">Preparation Time</th>
-                <th className="w-[9%] px-4 py-3">HSN Code</th>
+                <th className="w-[16%] px-4 py-3">Item Name</th>
+                <th className="w-[13%] px-4 py-3">Category</th>
+                <th className="w-[10%] px-4 py-3">Type</th>
+                <th className="w-[11%] px-4 py-3">Item Type</th>
+                <th className="w-[11%] px-4 py-3">Preparation Time</th>
+                <th className="w-[8%] px-4 py-3">HSN Code</th>
                 <th className="w-[9%] px-4 py-3">Status</th>
-                <th className="w-[15%] px-4 py-3">Created Date Time</th>
-                <th className="w-[15%] px-4 py-3">Updated Date Time</th>
-                <th className="w-[17%] px-4 py-3">Actions</th>
+                <th className="w-[13%] px-4 py-3">Active / Inactive</th>
+                <th className="w-[14%] px-4 py-3">Created Date Time</th>
+                <th className="w-[14%] px-4 py-3">Updated Date Time</th>
+                <th className="w-[16%] px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -1326,6 +1430,13 @@ export function ItemsPageClient() {
                     <td className="px-4 py-4 text-slate-600">{item.hsnCode || 'Not set'}</td>
                     <td className="px-4 py-4">
                       <StatusBadge isActive={item.isActive} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleButton
+                        isActive={item.isActive}
+                        isPending={toggleItemStatusMutation.isPending}
+                        onToggle={() => toggleItemStatus(item)}
+                      />
                     </td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(item.createdAt)}</td>
                     <td className="px-4 py-4 text-slate-600">{formatDate(item.updatedAt)}</td>
@@ -1357,7 +1468,7 @@ export function ItemsPageClient() {
                 ))
               ) : (
                 <QueryState
-                  colSpan={10}
+                  colSpan={11}
                   error={itemsQuery.error}
                   isError={itemsQuery.isError}
                   isLoading={itemsQuery.isLoading}

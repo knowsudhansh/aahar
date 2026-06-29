@@ -4,6 +4,8 @@ import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowRightLeft,
+  ChevronDown,
+  ChevronRight,
   ClipboardCheck,
   Loader2,
   PackageCheck,
@@ -13,7 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type {
@@ -22,12 +24,19 @@ import type {
   GrnStatus,
   Hospital,
   InventoryLocationType,
+  Item,
+  ItemType,
   Kitchen,
   Restaurant,
   SortOrder,
   StockBalance,
   StockBalanceStatus,
+  StockLedger,
+  StockReferenceType,
+  StockTransactionType,
   Store,
+  StoreStockBatchSummary,
+  StoreStockSummary,
   StoreItem,
   Transfer,
   TransferAcknowledgementLineInput,
@@ -51,6 +60,23 @@ const grnStatuses: GrnStatus[] = [
   'REJECTED',
 ];
 const stockStatuses: StockBalanceStatus[] = ['AVAILABLE', 'NEAR_EXPIRY', 'EXPIRED', 'OUT_OF_STOCK'];
+const stockItemTypes: ItemType[] = ['MRP', 'READYMADE', 'LIVE'];
+const stockLedgerLocationTypes: InventoryLocationType[] = ['STORE', 'KITCHEN', 'RESTAURANT'];
+const stockReferenceTypes: StockReferenceType[] = [
+  'GRN',
+  'KITCHEN_PRODUCTION',
+  'TRANSFER',
+  'TRANSFER_ACKNOWLEDGEMENT',
+];
+const stockTransactionTypes: StockTransactionType[] = [
+  'GRN_IN',
+  'KITCHEN_PRODUCTION_IN',
+  'KITCHEN_TRANSFER_OUT',
+  'RESTAURANT_TRANSFER_IN',
+  'RESTAURANT_RECEIVE_IN',
+  'STORE_TO_RESTAURANT_OUT',
+  'TRANSFER_REJECTED_RETURN_IN',
+];
 const transferStatuses: TransferStatus[] = [
   'DRAFT',
   'PENDING_ACKNOWLEDGEMENT',
@@ -127,6 +153,8 @@ interface LineDraft {
   rejectionReason: string;
   remarks: string;
 }
+
+type ItemTypeFilter = '' | ItemType;
 
 const dateFormatter = new Intl.DateTimeFormat('en-IN', {
   dateStyle: 'medium',
@@ -245,6 +273,10 @@ function statusVariant(status: string): 'danger' | 'neutral' | 'success' {
   }
 
   return 'neutral';
+}
+
+function formatQuantity(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(3);
 }
 
 function PageHeader({
@@ -408,6 +440,22 @@ function useStores(hospitalId?: string) {
       return response.data.items;
     },
     queryKey: ['inventory-stores', hospitalId],
+  });
+}
+
+function useItems(itemType?: ItemType) {
+  return useQuery<Item[]>({
+    queryFn: async () => {
+      const response = await organizationApi.listItems({
+        itemType,
+        limit: 200,
+        sortBy: 'itemName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['inventory-items', itemType ?? 'all'],
   });
 }
 
@@ -1303,41 +1351,70 @@ export function StoreStockPageClient() {
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
+  const [itemFilter, setItemFilter] = useState('');
+  const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('');
+  const [batchFilter, setBatchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | StockBalanceStatus>('');
+  const [sortBy, setSortBy] = useState('lastUpdatedOn');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [expandedRows, setExpandedRows] = useState<string[]>([]);
   const hospitalsQuery = useHospitals();
   const storesQuery = useStores(hospitalFilter);
+  const itemOptionsQuery = useItems(itemTypeFilter || undefined);
 
   const stockQuery = useQuery({
     queryFn: async () => {
-      const response = await organizationApi.listStockBalances({
+      const response = await organizationApi.listStoreStockSummaries({
+        batchNumber: batchFilter,
         hospitalId: hospitalFilter,
-        itemType: 'MRP',
+        itemId: itemFilter,
+        itemType: itemTypeFilter || undefined,
         limit: listLimit,
         locationId: storeFilter,
         locationType: 'STORE',
         page,
         search,
-        sortBy: 'lastUpdatedOn',
-        sortOrder: 'desc',
+        sortBy,
+        sortOrder,
         status: statusFilter || undefined,
       });
 
       return response.data;
     },
-    queryKey: ['stock-balances', page, search, hospitalFilter, storeFilter, statusFilter],
+    queryKey: [
+      'stock-balances',
+      page,
+      search,
+      hospitalFilter,
+      storeFilter,
+      itemFilter,
+      itemTypeFilter,
+      batchFilter,
+      statusFilter,
+      sortBy,
+      sortOrder,
+    ],
   });
 
   const items = stockQuery.data?.items ?? [];
   const meta = stockQuery.data?.meta ?? { limit: listLimit, page, total: 0, totalPages: 1 };
 
+  function toggleSummary(summary: StoreStockSummary) {
+    const key = `${summary.storeId}:${summary.itemId}`;
+
+    setExpandedRows((current) =>
+      current.includes(key) ? current.filter((rowKey) => rowKey !== key) : [...current, key],
+    );
+  }
+
   return (
     <section className="space-y-6">
       <PageHeader
-        subtitle="Current store stock from posted GRNs, grouped by item batch and expiry."
+        subtitle="Current store stock summarized by store and item, with batch details on expand."
         title="Store Stock"
       />
       <Panel>
-        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto]">
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_170px_170px_160px_180px_150px_160px_150px_130px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
@@ -1377,6 +1454,64 @@ export function StoreStockPageClient() {
               </option>
             ))}
           </Select>
+          <Select
+            onChange={(event) => {
+              setItemTypeFilter(event.target.value as ItemTypeFilter);
+              setItemFilter('');
+              setPage(1);
+            }}
+            value={itemTypeFilter}
+          >
+            <option value="">All item types</option>
+            {stockItemTypes.map((itemType) => (
+              <option key={itemType} value={itemType}>
+                {formatEnum(itemType)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setItemFilter(event.target.value);
+              setPage(1);
+            }}
+            value={itemFilter}
+          >
+            <option value="">All items</option>
+            {itemOptionsQuery.data?.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.itemName}
+              </option>
+            ))}
+          </Select>
+          <Input
+            onChange={(event) => {
+              setBatchFilter(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Batch number"
+            value={batchFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="lastUpdatedOn">Last updated</option>
+            <option value="availableQty">Available qty</option>
+            <option value="expiryDate">Expiry date</option>
+          </Select>
+          <Select
+            onChange={(event) => {
+              setSortOrder(event.target.value as SortOrder);
+              setPage(1);
+            }}
+            value={sortOrder}
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </Select>
           <Button onClick={() => void stockQuery.refetch()} type="button" variant="outline">
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -1385,43 +1520,134 @@ export function StoreStockPageClient() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
               <tr>
+                <th className="w-[6%] px-4 py-3">View</th>
                 <th className="w-[18%] px-4 py-3">Store</th>
-                <th className="w-[18%] px-4 py-3">Item</th>
-                <th className="w-[14%] px-4 py-3">Batch Number</th>
-                <th className="w-[14%] px-4 py-3">Expiry Date</th>
-                <th className="w-[12%] px-4 py-3">Available Qty</th>
+                <th className="w-[20%] px-4 py-3">Item</th>
+                <th className="w-[14%] px-4 py-3">Category</th>
+                <th className="w-[12%] px-4 py-3">Total Available</th>
                 <th className="w-[12%] px-4 py-3">Reserved Qty</th>
+                <th className="w-[10%] px-4 py-3">Batches</th>
+                <th className="w-[14%] px-4 py-3">Nearest Expiry</th>
                 <th className="w-[12%] px-4 py-3">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {items.length > 0 ? (
-                items.map((stock: StockBalance) => (
-                  <tr className="hover:bg-slate-50" key={stock.id}>
-                    <td className="px-4 py-4">
-                      <p className="font-medium text-slate-950">{stock.location.name}</p>
-                      <p className="text-xs text-slate-500">{stock.location.code}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="font-medium text-slate-950">{stock.item.itemName}</p>
-                      <p className="text-xs text-slate-500">{stock.item.itemCode}</p>
-                    </td>
-                    <td className="px-4 py-4 text-slate-600">{stock.batchNumber}</td>
-                    <td className="px-4 py-4 text-slate-600">{formatDateOnly(stock.expiryDate)}</td>
-                    <td className="px-4 py-4 font-semibold text-slate-950">
-                      {stock.availableQty.toFixed(3)}
-                    </td>
-                    <td className="px-4 py-4 text-slate-600">{stock.reservedQty.toFixed(3)}</td>
-                    <td className="px-4 py-4">
-                      <Badge variant={statusVariant(stock.status)}>
-                        {formatEnum(stock.status)}
-                      </Badge>
-                    </td>
-                  </tr>
-                ))
+                items.map((summary: StoreStockSummary) => {
+                  const rowKey = `${summary.storeId}:${summary.itemId}`;
+                  const isExpanded = expandedRows.includes(rowKey);
+
+                  return (
+                    <Fragment key={rowKey}>
+                      <tr className="hover:bg-slate-50">
+                        <td className="px-4 py-4">
+                          <Button
+                            aria-expanded={isExpanded}
+                            aria-label={isExpanded ? 'Collapse batches' : 'Expand batches'}
+                            onClick={() => toggleSummary(summary)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="h-4 w-4" />
+                            ) : (
+                              <ChevronRight className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="font-medium text-slate-950">{summary.storeName}</p>
+                          <p className="text-xs text-slate-500">{summary.storeCode ?? '-'}</p>
+                        </td>
+                        <td className="px-4 py-4">
+                          <p className="font-medium text-slate-950">{summary.itemName}</p>
+                          <p className="text-xs text-slate-500">{summary.itemCode}</p>
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">{summary.categoryName ?? '-'}</td>
+                        <td className="px-4 py-4">
+                          <p className="text-lg font-semibold text-slate-950">
+                            {formatQuantity(summary.totalAvailableQty)}
+                          </p>
+                          <p className="text-xs text-slate-500">{formatEnum(summary.itemType)}</p>
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {formatQuantity(summary.totalReservedQty)}
+                        </td>
+                        <td className="px-4 py-4">
+                          <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
+                            {summary.batchCount}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-4 text-slate-600">
+                          {formatDateOnly(summary.nearestExpiryDate)}
+                        </td>
+                        <td className="px-4 py-4">
+                          <Badge variant={statusVariant(summary.status)}>
+                            {formatEnum(summary.status)}
+                          </Badge>
+                        </td>
+                      </tr>
+                      {isExpanded ? (
+                        <tr key={`${rowKey}:batches`} className="bg-slate-50/70">
+                          <td className="px-4 py-4" colSpan={9}>
+                            <div className="rounded-lg border bg-white p-3 shadow-sm">
+                              <div className="mb-3 flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-semibold text-slate-950">
+                                    Batch-wise stock
+                                  </p>
+                                  <p className="text-xs text-slate-500">
+                                    Internal stock remains batch-wise for GRN and transfers.
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-slate-100 text-sm">
+                                  <thead className="text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                                    <tr>
+                                      <th className="px-3 py-2">Batch Number</th>
+                                      <th className="px-3 py-2">Expiry Date</th>
+                                      <th className="px-3 py-2">Available Qty</th>
+                                      <th className="px-3 py-2">Reserved Qty</th>
+                                      <th className="px-3 py-2">Status</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {summary.batches.map((batch: StoreStockBatchSummary) => (
+                                      <tr key={batch.stockBalanceId}>
+                                        <td className="px-3 py-3 font-medium text-slate-950">
+                                          {batch.batchNumber ?? '-'}
+                                        </td>
+                                        <td className="px-3 py-3 text-slate-600">
+                                          {formatDateOnly(batch.expiryDate)}
+                                        </td>
+                                        <td className="px-3 py-3 font-semibold text-slate-950">
+                                          {formatQuantity(batch.availableQty)}
+                                        </td>
+                                        <td className="px-3 py-3 text-slate-600">
+                                          {formatQuantity(batch.reservedQty)}
+                                        </td>
+                                        <td className="px-3 py-3">
+                                          <Badge variant={statusVariant(batch.status)}>
+                                            {formatEnum(batch.status)}
+                                          </Badge>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
+                  );
+                })
               ) : (
                 <QueryState
-                  colSpan={7}
+                  colSpan={9}
                   error={stockQuery.error}
                   isError={stockQuery.isError}
                   isLoading={stockQuery.isLoading}
@@ -1455,6 +1681,7 @@ interface TransferHeaderFormValues {
 
 interface TransferLineDraft {
   clientId: string;
+  itemId: string;
   remarks: string;
   sentQty: string;
   stockBalanceId: string;
@@ -1491,6 +1718,7 @@ const transferLinesSchema = z
 function emptyTransferLine(): TransferLineDraft {
   return {
     clientId: clientId('transfer-line'),
+    itemId: '',
     remarks: '',
     sentQty: '',
     stockBalanceId: '',
@@ -1668,6 +1896,164 @@ function stockOptionLabel(stock: StockBalance): string {
       : `${stock.batchNumber ?? 'No batch'} - ${formatDateOnly(stock.expiryDate)}`;
 
   return `${stock.item.itemName} (${stock.item.itemCode}) - ${sourceDate} - ${stock.availableQty.toFixed(3)} available`;
+}
+
+interface TransferItemGroup {
+  batchCount: number;
+  businessDate: string | null;
+  itemCode: string;
+  itemId: string;
+  itemName: string;
+  key: string;
+  nearestExpiryDate: string | null;
+  status: StockBalanceStatus;
+  stocks: StockBalance[];
+  totalAvailableQty: number;
+}
+
+interface AllocationPreviewLine {
+  allocatedQty: number;
+  stock: StockBalance;
+}
+
+interface PreparedTransferLine {
+  remarks?: string;
+  sentQty: number;
+  stock: StockBalance;
+}
+
+function compareStockForAllocation(
+  left: StockBalance,
+  right: StockBalance,
+  sourceType: InventoryLocationType,
+): number {
+  const leftDate = sourceType === 'KITCHEN' ? left.businessDate : left.expiryDate;
+  const rightDate = sourceType === 'KITCHEN' ? right.businessDate : right.expiryDate;
+
+  if (!leftDate && !rightDate) {
+    return left.updatedAt.localeCompare(right.updatedAt);
+  }
+
+  if (!leftDate) {
+    return 1;
+  }
+
+  if (!rightDate) {
+    return -1;
+  }
+
+  const dateCompare = new Date(leftDate).getTime() - new Date(rightDate).getTime();
+
+  if (dateCompare !== 0) {
+    return dateCompare;
+  }
+
+  return left.updatedAt.localeCompare(right.updatedAt);
+}
+
+function getTransferGroupKey(stock: StockBalance, sourceType: InventoryLocationType): string {
+  if (sourceType === 'KITCHEN') {
+    return `${stock.itemId}:${toDateOnlyValue(stock.businessDate)}`;
+  }
+
+  return stock.itemId;
+}
+
+function getStockSummaryStatus(stocks: StockBalance[]): StockBalanceStatus {
+  const totalAvailableQty = stocks.reduce((total, stock) => total + stock.availableQty, 0);
+  const availableStocks = stocks.filter((stock) => stock.availableQty > 0);
+
+  if (totalAvailableQty <= 0) {
+    return 'OUT_OF_STOCK';
+  }
+
+  if (availableStocks.length > 0 && availableStocks.every((stock) => stock.status === 'EXPIRED')) {
+    return 'EXPIRED';
+  }
+
+  if (availableStocks.some((stock) => stock.status === 'NEAR_EXPIRY')) {
+    return 'NEAR_EXPIRY';
+  }
+
+  return 'AVAILABLE';
+}
+
+function buildTransferItemGroups(
+  stocks: StockBalance[],
+  sourceType: InventoryLocationType,
+): TransferItemGroup[] {
+  const groups = new Map<string, StockBalance[]>();
+
+  stocks.forEach((stock) => {
+    const key = getTransferGroupKey(stock, sourceType);
+    groups.set(key, [...(groups.get(key) ?? []), stock]);
+  });
+
+  return Array.from(groups.entries())
+    .map(([key, groupStocks]) => {
+      const sortedStocks = [...groupStocks].sort((left, right) =>
+        compareStockForAllocation(left, right, sourceType),
+      );
+      const firstStock = sortedStocks[0];
+      const nearestExpiryDate =
+        sourceType === 'KITCHEN'
+          ? toDateOnlyValue(firstStock?.businessDate)
+          : toDateOnlyValue(firstStock?.expiryDate);
+
+      return {
+        batchCount: sortedStocks.length,
+        businessDate: sourceType === 'KITCHEN' ? toDateOnlyValue(firstStock?.businessDate) : null,
+        itemCode: firstStock?.item.itemCode ?? '',
+        itemId: firstStock?.itemId ?? '',
+        itemName: firstStock?.item.itemName ?? '',
+        key,
+        nearestExpiryDate: nearestExpiryDate || null,
+        status: getStockSummaryStatus(sortedStocks),
+        stocks: sortedStocks,
+        totalAvailableQty: Number(
+          sortedStocks.reduce((total, stock) => total + stock.availableQty, 0).toFixed(3),
+        ),
+      };
+    })
+    .sort((left, right) => left.itemName.localeCompare(right.itemName));
+}
+
+function allocateFefo(
+  stocks: StockBalance[],
+  requestedQty: number,
+  sourceType: InventoryLocationType,
+  remainingByStockId?: Map<string, number>,
+): AllocationPreviewLine[] {
+  let remainingQty = requestedQty;
+  const allocations: AllocationPreviewLine[] = [];
+
+  for (const stock of [...stocks].sort((left, right) =>
+    compareStockForAllocation(left, right, sourceType),
+  )) {
+    if (remainingQty <= 0) {
+      break;
+    }
+
+    const availableQty = remainingByStockId?.get(stock.id) ?? stock.availableQty;
+
+    if (availableQty <= 0) {
+      continue;
+    }
+
+    const allocatedQty = Math.min(availableQty, remainingQty);
+
+    allocations.push({
+      allocatedQty: Number(allocatedQty.toFixed(3)),
+      stock,
+    });
+    remainingQty = Number((remainingQty - allocatedQty).toFixed(3));
+
+    if (remainingByStockId) {
+      remainingByStockId.set(stock.id, Number((availableQty - allocatedQty).toFixed(3)));
+    }
+  }
+
+  return allocations;
 }
 
 export function TransfersPageClient() {
@@ -2226,6 +2612,7 @@ export function CreateTransferPageClient() {
   const [lines, setLines] = useState<TransferLineDraft[]>([emptyTransferLine()]);
   const [formError, setFormError] = useState('');
   const [createdTransfer, setCreatedTransfer] = useState<Transfer | null>(null);
+  const [manualBatchMode, setManualBatchMode] = useState(false);
   const form = useForm<TransferHeaderFormValues>({
     defaultValues: {
       businessDate: '',
@@ -2251,6 +2638,14 @@ export function CreateTransferPageClient() {
   const stockMap = useMemo(
     () => new Map(stockOptions.map((stock) => [stock.id, stock])),
     [stockOptions],
+  );
+  const stockGroups = useMemo(
+    () => buildTransferItemGroups(stockOptions, selectedSourceType),
+    [selectedSourceType, stockOptions],
+  );
+  const stockGroupMap = useMemo(
+    () => new Map(stockGroups.map((group) => [group.key, group])),
+    [stockGroups],
   );
   const isReadOnly = createdTransfer?.status !== undefined && createdTransfer.status !== 'DRAFT';
 
@@ -2315,7 +2710,6 @@ export function CreateTransferPageClient() {
     setFormError('');
 
     const header = transferHeaderSchema.safeParse(form.getValues());
-    const parsedLines = transferLinesSchema.safeParse(lines);
 
     if (!header.success) {
       const issue = header.error.issues[0];
@@ -2328,25 +2722,98 @@ export function CreateTransferPageClient() {
       return;
     }
 
-    if (!parsedLines.success) {
-      setFormError(parsedLines.error.issues[0]?.message ?? 'Check transfer lines.');
-      return;
-    }
-
     const selectedStocks: StockBalance[] = [];
+    let preparedLines: PreparedTransferLine[] = [];
     const totals = new Map<string, number>();
 
-    for (const line of lines) {
-      const stock = stockMap.get(line.stockBalanceId);
-      const sentQty = Number(line.sentQty || 0);
+    if (manualBatchMode) {
+      const parsedLines = transferLinesSchema.safeParse(lines);
 
-      if (!stock) {
-        setFormError('Select valid source stock for every line.');
+      if (!parsedLines.success) {
+        setFormError(parsedLines.error.issues[0]?.message ?? 'Check transfer lines.');
         return;
       }
 
-      selectedStocks.push(stock);
-      totals.set(stock.id, (totals.get(stock.id) ?? 0) + sentQty);
+      const nextPreparedLines: PreparedTransferLine[] = [];
+
+      for (const line of lines) {
+        const stock = stockMap.get(line.stockBalanceId);
+        const sentQty = Number(line.sentQty || 0);
+
+        if (!stock) {
+          setFormError('Select valid source stock for every line.');
+          return;
+        }
+
+        nextPreparedLines.push({
+          remarks: optionalValue(line.remarks),
+          sentQty,
+          stock,
+        });
+      }
+
+      preparedLines = nextPreparedLines;
+    } else {
+      const remainingByStockId = new Map(
+        stockOptions.map((stock) => [stock.id, stock.availableQty] as const),
+      );
+
+      for (const line of lines) {
+        const group = stockGroupMap.get(line.itemId);
+        const sentQty = Number(line.sentQty || 0);
+
+        if (!line.itemId || !group) {
+          setFormError('Select an item for every transfer line.');
+          return;
+        }
+
+        if (!Number.isFinite(sentQty) || sentQty <= 0) {
+          setFormError('Transfer quantity must be greater than zero.');
+          return;
+        }
+
+        if (sentQty > group.totalAvailableQty) {
+          setFormError(
+            `Available quantity for ${group.itemName} is ${formatQuantity(
+              group.totalAvailableQty,
+            )}. Please enter quantity up to ${formatQuantity(group.totalAvailableQty)}.`,
+          );
+          return;
+        }
+
+        const allocations = allocateFefo(
+          group.stocks,
+          sentQty,
+          header.data.sourceType,
+          remainingByStockId,
+        );
+        const allocatedQty = allocations.reduce(
+          (total, allocation) => total + allocation.allocatedQty,
+          0,
+        );
+
+        if (allocatedQty < sentQty) {
+          setFormError(
+            `Available quantity for ${group.itemName} is ${formatQuantity(
+              allocatedQty,
+            )}. Please enter quantity up to ${formatQuantity(allocatedQty)}.`,
+          );
+          return;
+        }
+
+        preparedLines.push(
+          ...allocations.map((allocation) => ({
+            remarks: optionalValue(line.remarks),
+            sentQty: allocation.allocatedQty,
+            stock: allocation.stock,
+          })),
+        );
+      }
+    }
+
+    for (const line of preparedLines) {
+      selectedStocks.push(line.stock);
+      totals.set(line.stock.id, (totals.get(line.stock.id) ?? 0) + line.sentQty);
     }
 
     for (const [stockId, requestedQty] of totals.entries()) {
@@ -2393,22 +2860,15 @@ export function CreateTransferPageClient() {
       destinationType: 'RESTAURANT',
       ...(transferBusinessDate ? { businessDate: transferBusinessDate } : {}),
       hospitalId: header.data.hospitalId,
-      items: lines.map((line) => {
-        const stock = stockMap.get(line.stockBalanceId);
-
-        if (!stock) {
-          throw new Error('Invalid stock selection');
-        }
-
-        return {
-          batchNumber: header.data.sourceType === 'STORE' ? (stock.batchNumber ?? '') : undefined,
-          expiryDate:
-            header.data.sourceType === 'STORE' ? toDateOnlyValue(stock.expiryDate) : undefined,
-          itemId: stock.itemId,
-          remarks: optionalValue(line.remarks),
-          sentQty: Number(line.sentQty),
-        };
-      }),
+      items: preparedLines.map((line) => ({
+        batchNumber:
+          header.data.sourceType === 'STORE' ? (line.stock.batchNumber ?? '') : undefined,
+        expiryDate:
+          header.data.sourceType === 'STORE' ? toDateOnlyValue(line.stock.expiryDate) : undefined,
+        itemId: line.stock.itemId,
+        remarks: line.remarks,
+        sentQty: line.sentQty,
+      })),
       remarks: optionalValue(header.data.remarks),
       sourceId: header.data.sourceId,
       sourceType: header.data.sourceType,
@@ -2583,18 +3043,34 @@ export function CreateTransferPageClient() {
                   Transfer Lines
                 </h2>
                 <p className="text-sm text-slate-500">
-                  Pick available source stock by item and stock key.
+                  Select an item and quantity. Batches are allocated by FEFO before saving.
                 </p>
               </div>
-              <Button
-                disabled={!selectedSourceId || isReadOnly}
-                onClick={addLine}
-                type="button"
-                variant="outline"
-              >
-                <Plus className="h-4 w-4" />
-                Add Line
-              </Button>
+              <div className="flex flex-col gap-2 sm:items-end">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <input
+                    checked={manualBatchMode}
+                    className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                    disabled={isReadOnly}
+                    onChange={(event) => {
+                      setManualBatchMode(event.target.checked);
+                      setLines([emptyTransferLine()]);
+                      resetCreated();
+                    }}
+                    type="checkbox"
+                  />
+                  Manual batch selection
+                </label>
+                <Button
+                  disabled={!selectedSourceId || isReadOnly}
+                  onClick={addLine}
+                  type="button"
+                  variant="outline"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Line
+                </Button>
+              </div>
             </div>
 
             {!selectedSourceId ? (
@@ -2616,69 +3092,232 @@ export function CreateTransferPageClient() {
             <div className="mt-5 space-y-4">
               {lines.map((line, index) => {
                 const stock = stockMap.get(line.stockBalanceId);
+                const group = stockGroupMap.get(line.itemId);
+                const requestedQty = Number(line.sentQty || 0);
+                const previewQty =
+                  Number.isFinite(requestedQty) && requestedQty > 0 ? requestedQty : 0;
+                const allocationPreview = group
+                  ? allocateFefo(group.stocks, previewQty, selectedSourceType)
+                  : [];
+                const previewAllocatedQty = allocationPreview.reduce(
+                  (total, allocation) => total + allocation.allocatedQty,
+                  0,
+                );
+                const isOverAvailable =
+                  Boolean(group) && previewQty > 0 && previewQty > (group?.totalAvailableQty ?? 0);
+
+                if (manualBatchMode) {
+                  return (
+                    <div
+                      className="grid gap-3 rounded-lg border bg-white p-4 lg:grid-cols-[minmax(0,1fr)_130px_130px_130px_1fr_auto]"
+                      key={line.clientId}
+                    >
+                      <Field label="Source Stock" name={`transfer-line-${line.clientId}-stock`}>
+                        <Select
+                          disabled={!selectedSourceId || isReadOnly}
+                          onChange={(event) =>
+                            updateLine(index, { stockBalanceId: event.target.value })
+                          }
+                          value={line.stockBalanceId}
+                        >
+                          <option value="">Select stock</option>
+                          {stockOptions.map((stockOption) => (
+                            <option key={stockOption.id} value={stockOption.id}>
+                              {stockOptionLabel(stockOption)}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                        <p className="text-slate-500">Batch</p>
+                        <p className="font-semibold text-slate-950">
+                          {stock?.batchNumber ?? 'No batch'}
+                        </p>
+                      </div>
+                      <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                        <p className="text-slate-500">
+                          {selectedSourceType === 'KITCHEN' ? 'Business Date' : 'Expiry'}
+                        </p>
+                        <p className="font-semibold text-slate-950">
+                          {selectedSourceType === 'KITCHEN'
+                            ? formatDateOnly(stock?.businessDate)
+                            : formatDateOnly(stock?.expiryDate)}
+                        </p>
+                      </div>
+                      <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                        <p className="text-slate-500">Available</p>
+                        <p className="font-semibold text-slate-950">
+                          {stock ? formatQuantity(stock.availableQty) : '-'}
+                        </p>
+                      </div>
+                      <Field label="Transfer Qty" name={`transfer-line-${line.clientId}-qty`}>
+                        <Input
+                          disabled={isReadOnly}
+                          min="0"
+                          onChange={(event) => updateLine(index, { sentQty: event.target.value })}
+                          placeholder="Qty"
+                          type="number"
+                          value={line.sentQty}
+                        />
+                      </Field>
+                      <Button
+                        className="self-end border-red-200 text-red-700 hover:bg-red-50"
+                        disabled={lines.length === 1 || isReadOnly}
+                        onClick={() => removeLine(index)}
+                        type="button"
+                        variant="outline"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                }
 
                 return (
-                  <div
-                    className="grid gap-3 rounded-lg border bg-white p-4 lg:grid-cols-[minmax(0,1fr)_130px_130px_130px_1fr_auto]"
-                    key={line.clientId}
-                  >
-                    <Field label="Source Stock" name={`transfer-line-${line.clientId}-stock`}>
-                      <Select
-                        disabled={!selectedSourceId || isReadOnly}
-                        onChange={(event) =>
-                          updateLine(index, { stockBalanceId: event.target.value })
-                        }
-                        value={line.stockBalanceId}
+                  <div className="space-y-4 rounded-lg border bg-white p-4" key={line.clientId}>
+                    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_160px_auto]">
+                      <Field label="Item" name={`transfer-line-${line.clientId}-item`}>
+                        <Select
+                          disabled={!selectedSourceId || isReadOnly}
+                          onChange={(event) =>
+                            updateLine(index, {
+                              itemId: event.target.value,
+                              stockBalanceId: '',
+                            })
+                          }
+                          value={line.itemId}
+                        >
+                          <option value="">Select item</option>
+                          {stockGroups.map((itemGroup) => (
+                            <option key={itemGroup.key} value={itemGroup.key}>
+                              {itemGroup.itemName} ({itemGroup.itemCode}) - Available{' '}
+                              {formatQuantity(itemGroup.totalAvailableQty)} - {itemGroup.batchCount}{' '}
+                              {itemGroup.batchCount === 1 ? 'batch' : 'batches'}
+                              {selectedSourceType === 'KITCHEN' && itemGroup.businessDate
+                                ? ` - Business ${formatDateOnly(itemGroup.businessDate)}`
+                                : ''}
+                            </option>
+                          ))}
+                        </Select>
+                      </Field>
+                      <Field label="Transfer Qty" name={`transfer-line-${line.clientId}-qty`}>
+                        <Input
+                          disabled={isReadOnly}
+                          min="0"
+                          onChange={(event) => updateLine(index, { sentQty: event.target.value })}
+                          placeholder="Qty"
+                          type="number"
+                          value={line.sentQty}
+                        />
+                      </Field>
+                      <Button
+                        className="self-end border-red-200 text-red-700 hover:bg-red-50"
+                        disabled={lines.length === 1 || isReadOnly}
+                        onClick={() => removeLine(index)}
+                        type="button"
+                        variant="outline"
                       >
-                        <option value="">Select stock</option>
-                        {stockOptions.map((stockOption) => (
-                          <option key={stockOption.id} value={stockOption.id}>
-                            {stockOptionLabel(stockOption)}
-                          </option>
-                        ))}
-                      </Select>
-                    </Field>
-                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
-                      <p className="text-slate-500">Batch</p>
-                      <p className="font-semibold text-slate-950">
-                        {stock?.batchNumber ?? 'No batch'}
-                      </p>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
-                      <p className="text-slate-500">
-                        {selectedSourceType === 'KITCHEN' ? 'Business Date' : 'Expiry'}
-                      </p>
-                      <p className="font-semibold text-slate-950">
-                        {selectedSourceType === 'KITCHEN'
-                          ? formatDateOnly(stock?.businessDate)
-                          : formatDateOnly(stock?.expiryDate)}
-                      </p>
-                    </div>
-                    <div className="rounded-md border bg-slate-50 p-3 text-sm">
-                      <p className="text-slate-500">Available</p>
-                      <p className="font-semibold text-slate-950">
-                        {stock?.availableQty.toFixed(3) ?? '-'}
-                      </p>
-                    </div>
-                    <Field label="Transfer Qty" name={`transfer-line-${line.clientId}-qty`}>
-                      <Input
-                        disabled={isReadOnly}
-                        min="0"
-                        onChange={(event) => updateLine(index, { sentQty: event.target.value })}
-                        placeholder="Qty"
-                        type="number"
-                        value={line.sentQty}
-                      />
-                    </Field>
-                    <Button
-                      className="self-end border-red-200 text-red-700 hover:bg-red-50"
-                      disabled={lines.length === 1 || isReadOnly}
-                      onClick={() => removeLine(index)}
-                      type="button"
-                      variant="outline"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+
+                    {group ? (
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                          <p className="text-slate-500">Total Available</p>
+                          <p className="font-semibold text-slate-950">
+                            {formatQuantity(group.totalAvailableQty)}
+                          </p>
+                        </div>
+                        <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                          <p className="text-slate-500">
+                            {selectedSourceType === 'KITCHEN' ? 'Business Date' : 'Nearest Expiry'}
+                          </p>
+                          <p className="font-semibold text-slate-950">
+                            {formatDateOnly(group.nearestExpiryDate)}
+                          </p>
+                        </div>
+                        <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                          <p className="text-slate-500">Batches</p>
+                          <p className="font-semibold text-slate-950">{group.batchCount}</p>
+                        </div>
+                        <div className="rounded-md border bg-slate-50 p-3 text-sm">
+                          <p className="text-slate-500">Status</p>
+                          <Badge variant={statusVariant(group.status)}>
+                            {formatEnum(group.status)}
+                          </Badge>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {isOverAvailable && group ? (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
+                        Available quantity for {group.itemName} is{' '}
+                        {formatQuantity(group.totalAvailableQty)}. Please enter quantity up to{' '}
+                        {formatQuantity(group.totalAvailableQty)}.
+                      </div>
+                    ) : null}
+
+                    {group && previewQty > 0 ? (
+                      <div className="rounded-lg border">
+                        <div className="flex flex-col gap-1 border-b bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              FEFO Batch Allocation Preview
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              {formatQuantity(previewAllocatedQty)} of {formatQuantity(previewQty)}{' '}
+                              planned from earliest available stock.
+                            </p>
+                          </div>
+                          <Badge variant={isOverAvailable ? 'danger' : 'success'}>
+                            {isOverAvailable ? 'Insufficient Qty' : 'Ready'}
+                          </Badge>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-slate-200 text-sm">
+                            <thead className="bg-white text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+                              <tr>
+                                <th className="px-4 py-3">Batch Number</th>
+                                <th className="px-4 py-3">
+                                  {selectedSourceType === 'KITCHEN'
+                                    ? 'Business Date'
+                                    : 'Expiry Date'}
+                                </th>
+                                <th className="px-4 py-3">Allocated Qty</th>
+                                <th className="px-4 py-3">Available Qty</th>
+                                <th className="px-4 py-3">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {allocationPreview.map((allocation) => (
+                                <tr key={allocation.stock.id}>
+                                  <td className="px-4 py-3 font-medium text-slate-950">
+                                    {allocation.stock.batchNumber ?? 'No batch'}
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-600">
+                                    {selectedSourceType === 'KITCHEN'
+                                      ? formatDateOnly(allocation.stock.businessDate)
+                                      : formatDateOnly(allocation.stock.expiryDate)}
+                                  </td>
+                                  <td className="px-4 py-3 font-semibold text-slate-950">
+                                    {formatQuantity(allocation.allocatedQty)}
+                                  </td>
+                                  <td className="px-4 py-3 text-slate-600">
+                                    {formatQuantity(allocation.stock.availableQty)}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <Badge variant={statusVariant(allocation.stock.status)}>
+                                      {formatEnum(allocation.stock.status)}
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
@@ -2715,26 +3354,52 @@ export function RestaurantStockPageClient() {
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
   const [restaurantFilter, setRestaurantFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<'' | 'KITCHEN' | 'STORE'>('');
+  const [itemFilter, setItemFilter] = useState('');
+  const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('');
+  const [batchFilter, setBatchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<'' | StockBalanceStatus>('');
+  const [sortBy, setSortBy] = useState('lastUpdatedOn');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const hospitalsQuery = useHospitals();
   const restaurantsQuery = useRestaurants(hospitalFilter);
+  const effectiveItemType =
+    itemTypeFilter ||
+    (sourceFilter === 'STORE' ? 'MRP' : sourceFilter === 'KITCHEN' ? 'READYMADE' : '');
+  const itemOptionsQuery = useItems(effectiveItemType || undefined);
 
   const stockQuery = useQuery({
     queryFn: async () => {
       const response = await organizationApi.listRestaurantStock({
+        batchNumber: batchFilter,
         hospitalId: hospitalFilter,
+        itemId: itemFilter,
+        itemType: effectiveItemType || undefined,
         limit: listLimit,
         locationId: restaurantFilter,
         page,
         search,
-        sortBy: 'lastUpdatedOn',
-        sortOrder: 'desc',
+        sortBy,
+        sortOrder,
         status: statusFilter || undefined,
       });
 
       return response.data;
     },
-    queryKey: ['restaurant-stock', page, search, hospitalFilter, restaurantFilter, statusFilter],
+    queryKey: [
+      'restaurant-stock',
+      page,
+      search,
+      hospitalFilter,
+      restaurantFilter,
+      sourceFilter,
+      itemFilter,
+      itemTypeFilter,
+      batchFilter,
+      statusFilter,
+      sortBy,
+      sortOrder,
+    ],
   });
 
   const items = stockQuery.data?.items ?? [];
@@ -2747,7 +3412,7 @@ export function RestaurantStockPageClient() {
         title="Restaurant Stock"
       />
       <Panel>
-        <div className="grid gap-3 border-b p-4 lg:grid-cols-[minmax(0,1fr)_180px_180px_180px_auto]">
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_170px_170px_140px_150px_180px_150px_160px_150px_130px_auto]">
           <SearchInput
             onChange={(value) => {
               setSearch(value);
@@ -2786,6 +3451,73 @@ export function RestaurantStockPageClient() {
                 {formatEnum(status)}
               </option>
             ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setSourceFilter(event.target.value as '' | 'KITCHEN' | 'STORE');
+              setItemFilter('');
+              setPage(1);
+            }}
+            value={sourceFilter}
+          >
+            <option value="">All sources</option>
+            <option value="STORE">Store</option>
+            <option value="KITCHEN">Kitchen</option>
+          </Select>
+          <Select
+            onChange={(event) => {
+              setItemTypeFilter(event.target.value as ItemTypeFilter);
+              setItemFilter('');
+              setPage(1);
+            }}
+            value={itemTypeFilter}
+          >
+            <option value="">All item types</option>
+            <option value="MRP">MRP</option>
+            <option value="READYMADE">READYMADE</option>
+          </Select>
+          <Select
+            onChange={(event) => {
+              setItemFilter(event.target.value);
+              setPage(1);
+            }}
+            value={itemFilter}
+          >
+            <option value="">All items</option>
+            {itemOptionsQuery.data?.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.itemName}
+              </option>
+            ))}
+          </Select>
+          <Input
+            onChange={(event) => {
+              setBatchFilter(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Batch number"
+            value={batchFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="lastUpdatedOn">Last updated</option>
+            <option value="availableQty">Available qty</option>
+            <option value="expiryDate">Expiry date</option>
+          </Select>
+          <Select
+            onChange={(event) => {
+              setSortOrder(event.target.value as SortOrder);
+              setPage(1);
+            }}
+            value={sortOrder}
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
           </Select>
           <Button onClick={() => void stockQuery.refetch()} type="button" variant="outline">
             <RefreshCw className="h-4 w-4" />
@@ -2844,6 +3576,315 @@ export function RestaurantStockPageClient() {
                   isError={stockQuery.isError}
                   isLoading={stockQuery.isLoading}
                   label="restaurant stock"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+export function StockLedgersPageClient() {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [locationTypeFilter, setLocationTypeFilter] = useState<'' | InventoryLocationType>('');
+  const [locationFilter, setLocationFilter] = useState('');
+  const [itemFilter, setItemFilter] = useState('');
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState<'' | StockTransactionType>('');
+  const [referenceTypeFilter, setReferenceTypeFilter] = useState<'' | StockReferenceType>('');
+  const [businessDateFilter, setBusinessDateFilter] = useState('');
+  const [fromDateFilter, setFromDateFilter] = useState('');
+  const [toDateFilter, setToDateFilter] = useState('');
+  const [sortBy, setSortBy] = useState('transactionDateTime');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const hospitalsQuery = useHospitals();
+  const storesQuery = useStores(hospitalFilter);
+  const kitchensQuery = useKitchens(hospitalFilter);
+  const restaurantsQuery = useRestaurants(hospitalFilter);
+  const itemOptionsQuery = useItems();
+  const locationOptions =
+    locationTypeFilter === 'STORE'
+      ? storesQuery.data?.map((store) => ({
+          code: store.storeCode,
+          id: store.id,
+          name: store.storeName,
+        }))
+      : locationTypeFilter === 'KITCHEN'
+        ? kitchensQuery.data?.map((kitchen) => ({
+            code: kitchen.kitchenCode,
+            id: kitchen.id,
+            name: kitchen.kitchenName,
+          }))
+        : locationTypeFilter === 'RESTAURANT'
+          ? restaurantsQuery.data?.map((restaurant) => ({
+              code: restaurant.restaurantCode,
+              id: restaurant.id,
+              name: restaurant.restaurantName,
+            }))
+          : [];
+
+  const ledgersQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listStockLedgers({
+        businessDate: businessDateFilter || undefined,
+        fromDate: fromDateFilter || undefined,
+        hospitalId: hospitalFilter,
+        itemId: itemFilter,
+        limit: listLimit,
+        locationId: locationFilter,
+        locationType: locationTypeFilter || undefined,
+        page,
+        referenceType: referenceTypeFilter || undefined,
+        search,
+        sortBy,
+        sortOrder,
+        toDate: toDateFilter || undefined,
+        transactionType: transactionTypeFilter || undefined,
+      });
+
+      return response.data;
+    },
+    queryKey: [
+      'stock-ledgers',
+      page,
+      search,
+      hospitalFilter,
+      locationTypeFilter,
+      locationFilter,
+      itemFilter,
+      transactionTypeFilter,
+      referenceTypeFilter,
+      businessDateFilter,
+      fromDateFilter,
+      toDateFilter,
+      sortBy,
+      sortOrder,
+    ],
+  });
+
+  const ledgers = ledgersQuery.data?.items ?? [];
+  const meta = ledgersQuery.data?.meta ?? { limit: listLimit, page, total: 0, totalPages: 1 };
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        subtitle="Read-only movement history across store, kitchen, and restaurant stock."
+        title="Stock Ledgers"
+      />
+      <Panel>
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_170px_150px_170px_180px_170px_160px_150px_150px_150px_130px_auto]">
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <HospitalSelect
+            hospitals={hospitalsQuery.data ?? []}
+            onChange={(value) => {
+              setHospitalFilter(value);
+              setLocationFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setLocationTypeFilter(event.target.value as '' | InventoryLocationType);
+              setLocationFilter('');
+              setPage(1);
+            }}
+            value={locationTypeFilter}
+          >
+            <option value="">All location types</option>
+            {stockLedgerLocationTypes.map((locationType) => (
+              <option key={locationType} value={locationType}>
+                {formatEnum(locationType)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            disabled={!locationTypeFilter || !hospitalFilter}
+            onChange={(event) => {
+              setLocationFilter(event.target.value);
+              setPage(1);
+            }}
+            value={locationFilter}
+          >
+            <option value="">All locations</option>
+            {locationOptions?.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setItemFilter(event.target.value);
+              setPage(1);
+            }}
+            value={itemFilter}
+          >
+            <option value="">All items</option>
+            {itemOptionsQuery.data?.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.itemName}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setTransactionTypeFilter(event.target.value as '' | StockTransactionType);
+              setPage(1);
+            }}
+            value={transactionTypeFilter}
+          >
+            <option value="">All transaction types</option>
+            {stockTransactionTypes.map((transactionType) => (
+              <option key={transactionType} value={transactionType}>
+                {formatEnum(transactionType)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setReferenceTypeFilter(event.target.value as '' | StockReferenceType);
+              setPage(1);
+            }}
+            value={referenceTypeFilter}
+          >
+            <option value="">All reference types</option>
+            {stockReferenceTypes.map((referenceType) => (
+              <option key={referenceType} value={referenceType}>
+                {formatEnum(referenceType)}
+              </option>
+            ))}
+          </Select>
+          <Input
+            onChange={(event) => {
+              setBusinessDateFilter(event.target.value);
+              setPage(1);
+            }}
+            type="date"
+            value={businessDateFilter}
+          />
+          <Input
+            onChange={(event) => {
+              setFromDateFilter(event.target.value);
+              setPage(1);
+            }}
+            type="date"
+            value={fromDateFilter}
+          />
+          <Input
+            onChange={(event) => {
+              setToDateFilter(event.target.value);
+              setPage(1);
+            }}
+            type="date"
+            value={toDateFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setSortOrder(event.target.value as SortOrder);
+              setPage(1);
+            }}
+            value={sortOrder}
+          >
+            <option value="desc">Descending</option>
+            <option value="asc">Ascending</option>
+          </Select>
+          <Button onClick={() => void ledgersQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="transactionDateTime">Transaction date</option>
+            <option value="businessDate">Business date</option>
+            <option value="createdAt">Created date</option>
+          </Select>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[16%] px-4 py-3">Location</th>
+                <th className="w-[16%] px-4 py-3">Item</th>
+                <th className="w-[11%] px-4 py-3">Transaction</th>
+                <th className="w-[11%] px-4 py-3">Reference</th>
+                <th className="w-[10%] px-4 py-3">Qty In</th>
+                <th className="w-[10%] px-4 py-3">Qty Out</th>
+                <th className="w-[10%] px-4 py-3">Balance</th>
+                <th className="w-[12%] px-4 py-3">Batch</th>
+                <th className="w-[12%] px-4 py-3">Business Date</th>
+                <th className="w-[15%] px-4 py-3">Transaction Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {ledgers.length > 0 ? (
+                ledgers.map((ledger: StockLedger) => (
+                  <tr className="hover:bg-slate-50" key={ledger.id}>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">{ledger.location.name}</p>
+                      <p className="text-xs text-slate-500">
+                        {formatEnum(ledger.locationType)} - {ledger.location.code ?? '-'}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">{ledger.item.itemName}</p>
+                      <p className="text-xs text-slate-500">{ledger.item.itemCode}</p>
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
+                        {formatEnum(ledger.transactionType)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {ledger.referenceType ? formatEnum(ledger.referenceType) : '-'}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-emerald-700">
+                      {ledger.qtyIn.toFixed(3)}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-red-700">
+                      {ledger.qtyOut.toFixed(3)}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-slate-950">
+                      {ledger.balanceAfter.toFixed(3)}
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{ledger.batchNumber ?? '-'}</td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {formatDateOnly(ledger.businessDate)}
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {formatDate(ledger.transactionDateTime)}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={10}
+                  error={ledgersQuery.error}
+                  isError={ledgersQuery.isError}
+                  isLoading={ledgersQuery.isLoading}
+                  label="stock ledgers"
                 />
               )}
             </tbody>

@@ -1,4 +1,9 @@
-import { InventoryLocationType, ItemType, StockTransactionType } from '@prisma/client';
+import {
+  InventoryLocationType,
+  ItemType,
+  StockReferenceType,
+  StockTransactionType,
+} from '@prisma/client';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsDateString, IsEnum, IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto';
@@ -62,6 +67,11 @@ export class ListStockLedgersQueryDto extends PaginationQueryDto {
   @IsEnum(StockTransactionType)
   @IsOptional()
   transactionType?: StockTransactionType;
+
+  @ApiPropertyOptional({ enum: StockReferenceType })
+  @IsEnum(StockReferenceType)
+  @IsOptional()
+  referenceType?: StockReferenceType;
 
   @ApiPropertyOptional({ default: 'transactionDateTime', enum: stockLedgerSortFields })
   @IsIn(stockLedgerSortFields)

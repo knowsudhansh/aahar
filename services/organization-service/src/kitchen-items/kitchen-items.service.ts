@@ -48,6 +48,7 @@ export class KitchenItemsService {
     const { limit, page } = getPagination(query);
     const where: Prisma.KitchenItemWhereInput = {
       deletedAt: null,
+      ...(query.hospitalId ? { kitchen: { hospitalId: query.hospitalId } } : {}),
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(query.itemId ? { itemId: query.itemId } : {}),
       ...(query.kitchenId ? { kitchenId: query.kitchenId } : {}),
@@ -234,8 +235,12 @@ export class KitchenItemsService {
   private async assertValidReadymadeItem(itemId: string, client: KitchenItemClient): Promise<void> {
     const item = await this.kitchenItems.findActiveItem(itemId, client);
 
-    if (!item || !item.isActive) {
-      throw new BadRequestException('Item not found or inactive');
+    if (!item) {
+      throw new BadRequestException('Item not found');
+    }
+
+    if (!item.isActive) {
+      throw new BadRequestException('This item is inactive and cannot be used.');
     }
 
     if (item.itemType !== ItemType.READYMADE) {

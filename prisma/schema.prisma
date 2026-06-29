@@ -652,6 +652,7 @@ model RestaurantMenu {
   timeSlotIds  String[]  @default([]) @map("time_slot_ids")
   daysOfWeek   String[]  @default([]) @map("days_of_week")
   isAvailable  Boolean   @default(true) @map("is_available")
+  isActive     Boolean   @default(true) @map("is_active")
   displayOrder Int       @default(0) @map("display_order")
   createdAt    DateTime  @default(now()) @map("created_at")
   createdBy    String?   @map("created_by") @db.Uuid
@@ -665,6 +666,7 @@ model RestaurantMenu {
 
   @@index([deletedAt])
   @@index([hospitalId])
+  @@index([isActive])
   @@index([itemId])
   @@index([restaurantId])
   @@index([restaurantId, itemId])
