@@ -11,6 +11,10 @@ export type StoreWithRelations = Prisma.StoreGetPayload<{ include: typeof storeI
 
 type StoreClient = Prisma.TransactionClient | PrismaService;
 
+interface StoreCodeSequenceRow {
+  nextValue: bigint;
+}
+
 @Injectable()
 export class StoresRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -82,6 +86,29 @@ export class StoresRepository {
         ...(excludeId ? { id: { not: excludeId } } : {})
       }
     });
+  }
+
+  async findByCode(
+    storeCode: string,
+    excludeId?: string,
+    client: StoreClient = this.prisma,
+  ): Promise<StoreWithRelations | null> {
+    return client.store.findFirst({
+      include: storeInclude,
+      where: {
+        storeCode,
+        ...(excludeId ? { id: { not: excludeId } } : {})
+      }
+    });
+  }
+
+  async getNextStoreCodeSequenceValue(client: StoreClient): Promise<number> {
+    const rows = await client.$queryRaw<StoreCodeSequenceRow[]>`
+      SELECT nextval('store_code_sequence')::bigint AS "nextValue"
+    `;
+    const nextValue = rows[0]?.nextValue;
+
+    return typeof nextValue === 'bigint' ? Number(nextValue) : Number(nextValue ?? 0);
   }
 
   async findMany(args: Prisma.StoreFindManyArgs): Promise<StoreWithRelations[]> {

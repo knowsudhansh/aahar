@@ -105,36 +105,64 @@ export interface ListQuery {
   sortOrder?: SortOrder;
 }
 
+export type OnlinePaymentOption = 'NONE' | 'PAYU' | 'RAZORPAY';
+
 export interface Hospital {
   address: string | null;
+  area: string | null;
   billPrefix: string | null;
   city: string | null;
   createdAt: string;
   deletedAt: string | null;
+  displayName: string;
   gstApplicable: boolean;
   hospitalCode: string;
   hospitalName: string;
   id: string;
+  invoicePrefix: string | null;
+  ipAddress: string | null;
   isActive: boolean;
+  latitude: string | null;
+  locationCode: string;
+  longitude: string | null;
+  onlinePaymentOption: OnlinePaymentOption;
+  postalCode: string | null;
   state: string | null;
+  title: string;
   updatedAt: string;
+  visitingCardAddress: string | null;
 }
 
 export interface HospitalInput {
   address?: string;
+  area?: string;
   billPrefix?: string;
   city?: string;
+  displayName?: string;
   gstApplicable?: boolean;
-  hospitalCode: string;
-  hospitalName: string;
+  hospitalCode?: string;
+  hospitalName?: string;
+  invoicePrefix?: string;
+  ipAddress?: string;
   isActive?: boolean;
+  latitude?: string;
+  locationCode?: string;
+  longitude?: string;
+  onlinePaymentOption?: OnlinePaymentOption;
+  postalCode?: string;
   state?: string;
+  title?: string;
+  visitingCardAddress?: string;
 }
 
-export type HospitalSummary = Pick<Hospital, 'hospitalCode' | 'hospitalName' | 'id' | 'isActive'>;
+export type HospitalSummary = Pick<Hospital, 'hospitalCode' | 'hospitalName' | 'id' | 'isActive'> &
+  Partial<
+    Pick<Hospital, 'city' | 'displayName' | 'locationCode' | 'postalCode' | 'state' | 'title'>
+  >;
 
 export interface HospitalListQuery extends ListQuery {
   city?: string;
+  onlinePaymentOption?: OnlinePaymentOption;
   state?: string;
 }
 
@@ -191,7 +219,7 @@ export interface StoreInput {
   hospitalId: string;
   isActive?: boolean;
   locationId?: string;
-  storeCode: string;
+  storeCode?: string;
   storeName: string;
   storeType?: string;
 }
@@ -222,7 +250,7 @@ export interface KitchenInput {
   closingTime?: string;
   hospitalId: string;
   isActive?: boolean;
-  kitchenCode: string;
+  kitchenCode?: string;
   kitchenName: string;
   locationId?: string;
   openingTime?: string;
@@ -235,64 +263,145 @@ export interface KitchenListQuery extends ListQuery {
 
 export interface Restaurant {
   address: string | null;
+  accountNumber: string | null;
+  atTableDining: boolean;
   b2cQrEnabled: boolean;
   bankBranch: string | null;
   bankName: string | null;
+  bankNameBranch: string | null;
   closingTime: string | null;
+  coverImageUrl: string | null;
   createdAt: string;
   deletedAt: string | null;
+  delivery: boolean;
+  email: string | null;
   fssaiNumber: string | null;
+  fssaiNumbers: string | null;
   gstNumber: string | null;
+  gstAddress: string | null;
+  homeDelivery: boolean;
   hospital: HospitalSummary;
   hospitalId: string;
   id: string;
+  ifscCode: string | null;
+  inCarDining: boolean;
+  inRoomDining: boolean;
   inRoomDiningEnabled: boolean;
+  inventory: boolean;
   isActive: boolean;
+  isAtTableDiningEnabled: boolean;
+  isDeliveryEnabled: boolean;
+  isHomeDeliveryEnabled: boolean;
+  isInCarDiningEnabled: boolean;
+  isInRoomDiningEnabled: boolean;
+  isInventoryEnabled: boolean;
+  isOffline: boolean;
+  isOnlineOrdersEnabled: boolean;
+  isOpen24x7: boolean;
+  isPosOrdersEnabled: boolean;
+  isRegisteredInGst: boolean;
+  isTakeawayEnabled: boolean;
+  isVegOnly: boolean;
   kitchen: Pick<Kitchen, 'id' | 'isActive' | 'kitchenCode' | 'kitchenName'> | null;
   kitchenId: string | null;
+  kitchenIds: string[];
+  kitchens: Pick<Kitchen, 'id' | 'isActive' | 'kitchenCode' | 'kitchenName'>[];
+  legalName: string | null;
   location: Pick<Location, 'id' | 'isActive' | 'locationName'> | null;
   locationId: string | null;
+  mobile: string | null;
   normalDiscountApplicable: boolean;
+  offline: boolean;
+  onlineOrders: boolean;
   onlineOrderingEnabled: boolean;
   openingTime: string | null;
+  open24x7: boolean;
   panNumber: string | null;
+  posOrders: boolean;
+  qrUnitName: string | null;
+  unitNameForQr: string | null;
   restaurantCode: string;
   restaurantName: string;
   staffDiscountApplicable: boolean;
   store: Pick<Store, 'id' | 'isActive' | 'storeCode' | 'storeName'> | null;
   storeId: string | null;
+  sodexoMid: string | null;
+  sodexoTid: string | null;
   sunBu: string | null;
   sunT1: string | null;
   sunT2: string | null;
+  takeaway: boolean;
+  thumbnailUrl: string | null;
   updatedAt: string;
   upiId: string | null;
+  vegOnly: boolean;
 }
 
 export interface RestaurantInput {
+  accountNumber?: string;
   address?: string;
+  atTableDining?: boolean;
   b2cQrEnabled?: boolean;
   bankBranch?: string;
   bankName?: string;
+  bankNameBranch?: string;
   closingTime?: string;
+  coverImageUrl?: string;
+  delivery?: boolean;
+  email?: string;
   fssaiNumber?: string;
+  fssaiNumbers?: string;
   gstNumber?: string;
+  gstAddress?: string;
+  homeDelivery?: boolean;
   hospitalId: string;
+  ifscCode?: string;
+  inCarDining?: boolean;
+  inRoomDining?: boolean;
   inRoomDiningEnabled?: boolean;
+  inventory?: boolean;
   isActive?: boolean;
+  isAtTableDiningEnabled?: boolean;
+  isDeliveryEnabled?: boolean;
+  isHomeDeliveryEnabled?: boolean;
+  isInCarDiningEnabled?: boolean;
+  isInRoomDiningEnabled?: boolean;
+  isInventoryEnabled?: boolean;
+  isOffline?: boolean;
+  isOnlineOrdersEnabled?: boolean;
+  isOpen24x7?: boolean;
+  isPosOrdersEnabled?: boolean;
+  isRegisteredInGst?: boolean;
+  isTakeawayEnabled?: boolean;
+  isVegOnly?: boolean;
   kitchenId?: string;
+  kitchenIds?: string[];
+  legalName?: string;
   locationId?: string;
+  mobile?: string;
   normalDiscountApplicable?: boolean;
+  offline?: boolean;
+  onlineOrders?: boolean;
   onlineOrderingEnabled?: boolean;
   openingTime?: string;
+  open24x7?: boolean;
   panNumber?: string;
-  restaurantCode: string;
+  posOrders?: boolean;
+  qrUnitName?: string;
+  unitNameForQr?: string;
+  restaurantCode?: string;
   restaurantName: string;
   staffDiscountApplicable?: boolean;
   storeId?: string;
+  sodexoMid?: string;
+  sodexoTid?: string;
   sunBu?: string;
   sunT1?: string;
   sunT2?: string;
+  takeaway?: boolean;
+  thumbnailUrl?: string;
   upiId?: string;
+  vegOnly?: boolean;
 }
 
 export interface RestaurantListQuery extends ListQuery {
@@ -333,6 +442,89 @@ export interface CounterInput {
 export interface CounterListQuery extends ListQuery {
   hospitalId?: string;
   restaurantId?: string;
+}
+
+export type PrimaryUpiProvider = 'BHARATPE' | 'GOOGLE_PAY' | 'OTHER' | 'PHONEPE';
+
+export interface PosDeviceRestaurantSummary {
+  id: string;
+  isActive: boolean;
+  restaurantCode: string;
+  restaurantName: string;
+}
+
+export interface PosDevice {
+  code: string;
+  createdAt: string;
+  deletedAt: string | null;
+  entity: string | null;
+  hostName: string | null;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  isActive: boolean;
+  isInvoicePrintEnabled: boolean;
+  isKotPrintEnabled: boolean;
+  name: string;
+  restaurantIds: string[];
+  restaurants: PosDeviceRestaurantSummary[];
+  updatedAt: string;
+}
+
+export interface PosDeviceInput {
+  code: string;
+  entity?: string;
+  hospitalId: string;
+  hostName?: string;
+  isActive?: boolean;
+  isInvoicePrintEnabled?: boolean;
+  isKotPrintEnabled?: boolean;
+  name: string;
+  restaurantIds?: string[];
+}
+
+export interface PosDeviceListQuery extends ListQuery {
+  hospitalId?: string;
+  restaurantId?: string;
+}
+
+export interface PaymentMachine {
+  createdAt: string;
+  deletedAt: string | null;
+  hasPinelabSecurityToken: boolean;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  isActive: boolean;
+  name: string;
+  pinelabImei: string | null;
+  pinelabMerchantId: string | null;
+  pinelabMerchantStorePosCode: string | null;
+  pinelabSecurityToken: string | null;
+  posDevice: Pick<PosDevice, 'code' | 'id' | 'isActive' | 'name'>;
+  posDeviceId: string;
+  primaryUpi: PrimaryUpiProvider | null;
+  serialNumber: string | null;
+  updatedAt: string;
+}
+
+export interface PaymentMachineInput {
+  hospitalId: string;
+  isActive?: boolean;
+  name: string;
+  pinelabImei?: string;
+  pinelabMerchantId?: string;
+  pinelabMerchantStorePosCode?: string;
+  pinelabSecurityToken?: string;
+  posDeviceId: string;
+  primaryUpi?: PrimaryUpiProvider;
+  serialNumber?: string;
+}
+
+export interface PaymentMachineListQuery extends ListQuery {
+  hospitalId?: string;
+  posDeviceId?: string;
+  primaryUpi?: PrimaryUpiProvider;
 }
 
 export type FoodType = 'VEG' | 'NON_VEG' | 'EGGETARIAN';
@@ -1301,6 +1493,18 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'POST',
       });
     },
+    createPaymentMachine(body: PaymentMachineInput) {
+      return client.request<ApiResponse<PaymentMachine>>('/payment-machines', {
+        body,
+        method: 'POST',
+      });
+    },
+    createPosDevice(body: PosDeviceInput) {
+      return client.request<ApiResponse<PosDevice>>('/pos-devices', {
+        body,
+        method: 'POST',
+      });
+    },
     createEmployee(body: EmployeeInput) {
       return client.request<ApiResponse<Employee>>('/employees', {
         body,
@@ -1400,6 +1604,16 @@ export function createOrganizationApi(options: ApiClientOptions) {
     deleteCounter(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/counters/${id}`, { method: 'DELETE' });
     },
+    deletePaymentMachine(id: string) {
+      return client.request<ApiResponse<{ id: string }>>(`/payment-machines/${id}`, {
+        method: 'DELETE',
+      });
+    },
+    deletePosDevice(id: string) {
+      return client.request<ApiResponse<{ id: string }>>(`/pos-devices/${id}`, {
+        method: 'DELETE',
+      });
+    },
     deleteEmployee(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/employees/${id}`, {
         method: 'DELETE',
@@ -1461,6 +1675,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
     getCounter(id: string) {
       return client.request<ApiResponse<Counter>>(`/counters/${id}`);
     },
+    getPaymentMachine(id: string) {
+      return client.request<ApiResponse<PaymentMachine>>(`/payment-machines/${id}`);
+    },
+    getPosDevice(id: string) {
+      return client.request<ApiResponse<PosDevice>>(`/pos-devices/${id}`);
+    },
     getEmployee(id: string) {
       return client.request<ApiResponse<Employee>>(`/employees/${id}`);
     },
@@ -1513,6 +1733,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     listCounters(query?: CounterListQuery) {
       return client.request<ApiResponse<ApiList<Counter>>>('/counters', { query });
+    },
+    listPaymentMachines(query?: PaymentMachineListQuery) {
+      return client.request<ApiResponse<ApiList<PaymentMachine>>>('/payment-machines', { query });
+    },
+    listPosDevices(query?: PosDeviceListQuery) {
+      return client.request<ApiResponse<ApiList<PosDevice>>>('/pos-devices', { query });
     },
     listEmployees(query?: EmployeeListQuery) {
       return client.request<ApiResponse<ApiList<Employee>>>('/employees', { query });
@@ -1591,6 +1817,18 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     updateCounter(id: string, body: Partial<CounterInput>) {
       return client.request<ApiResponse<Counter>>(`/counters/${id}`, {
+        body,
+        method: 'PUT',
+      });
+    },
+    updatePaymentMachine(id: string, body: Partial<PaymentMachineInput>) {
+      return client.request<ApiResponse<PaymentMachine>>(`/payment-machines/${id}`, {
+        body,
+        method: 'PUT',
+      });
+    },
+    updatePosDevice(id: string, body: Partial<PosDeviceInput>) {
+      return client.request<ApiResponse<PosDevice>>(`/pos-devices/${id}`, {
         body,
         method: 'PUT',
       });

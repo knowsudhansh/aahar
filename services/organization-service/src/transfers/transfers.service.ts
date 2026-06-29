@@ -320,6 +320,17 @@ export class TransfersService {
         throw new BadRequestException('Only draft transfers can be dispatched');
       }
 
+      await this.assertTransferEntitiesActive(
+        {
+          destinationId: existing.destinationId,
+          destinationType: existing.destinationType,
+          hospitalId: existing.hospitalId,
+          sourceId: existing.sourceId,
+          sourceType: existing.sourceType,
+        },
+        tx,
+      );
+
       for (const line of existing.lines) {
         const balance = await this.findSourceBalanceForLine(
           existing.hospitalId,
@@ -435,42 +446,56 @@ export class TransfersService {
   private async assertTransferHeader(dto: CreateTransferDto, client: TransferClient) {
     assertSupportedSource(dto.sourceType);
 
-    if (dto.destinationType !== InventoryLocationType.RESTAURANT) {
-      throw new BadRequestException('Destination must be a restaurant');
-    }
-
     if (dto.sourceId === dto.destinationId) {
       throw new BadRequestException('Source and destination cannot be same');
     }
 
+    await this.assertTransferEntitiesActive(dto, client);
+  }
+
+  private async assertTransferEntitiesActive(
+    transfer: Pick<
+      CreateTransferDto,
+      'destinationId' | 'destinationType' | 'hospitalId' | 'sourceId' | 'sourceType'
+    >,
+    client: TransferClient,
+  ) {
+    assertSupportedSource(transfer.sourceType);
+
+    if (transfer.destinationType !== InventoryLocationType.RESTAURANT) {
+      throw new BadRequestException('Destination must be a restaurant');
+    }
+
     const [hospital, source, restaurant] = await Promise.all([
-      this.transfers.findActiveHospital(dto.hospitalId, client),
-      dto.sourceType === InventoryLocationType.KITCHEN
-        ? this.transfers.findActiveKitchen(dto.sourceId, client)
-        : this.transfers.findActiveStore(dto.sourceId, client),
-      this.transfers.findActiveRestaurant(dto.destinationId, client),
+      this.transfers.findActiveHospital(transfer.hospitalId, client),
+      transfer.sourceType === InventoryLocationType.KITCHEN
+        ? this.transfers.findActiveKitchen(transfer.sourceId, client)
+        : this.transfers.findActiveStore(transfer.sourceId, client),
+      this.transfers.findActiveRestaurant(transfer.destinationId, client),
     ]);
 
     if (!hospital || !hospital.isActive) {
-      throw new BadRequestException('Hospital not found or inactive');
+      throw new BadRequestException('Location not found or inactive');
     }
 
     if (!source || !source.isActive) {
-      throw new BadRequestException(`${sourceDisplayName(dto.sourceType)} not found or inactive`);
+      throw new BadRequestException(
+        `${sourceDisplayName(transfer.sourceType)} not found or inactive`,
+      );
     }
 
     if (!restaurant || !restaurant.isActive) {
       throw new BadRequestException('Restaurant not found or inactive');
     }
 
-    if (source.hospitalId !== dto.hospitalId) {
+    if (source.hospitalId !== transfer.hospitalId) {
       throw new BadRequestException(
-        `${sourceDisplayName(dto.sourceType)} does not belong to selected hospital`,
+        `${sourceDisplayName(transfer.sourceType)} does not belong to selected location`,
       );
     }
 
-    if (restaurant.hospitalId !== dto.hospitalId) {
-      throw new BadRequestException('Restaurant does not belong to selected hospital');
+    if (restaurant.hospitalId !== transfer.hospitalId) {
+      throw new BadRequestException('Restaurant does not belong to selected location');
     }
   }
 

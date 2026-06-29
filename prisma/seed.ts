@@ -36,6 +36,14 @@ const defaultPermissions = [
   ['COUNTER_VIEW', 'COUNTER', 'VIEW', 'View counters'],
   ['COUNTER_UPDATE', 'COUNTER', 'UPDATE', 'Update counters'],
   ['COUNTER_DELETE', 'COUNTER', 'DELETE', 'Disable counters'],
+  ['POS_DEVICE_CREATE', 'POS_DEVICE', 'CREATE', 'Create POS devices'],
+  ['POS_DEVICE_VIEW', 'POS_DEVICE', 'VIEW', 'View POS devices'],
+  ['POS_DEVICE_UPDATE', 'POS_DEVICE', 'UPDATE', 'Update POS devices'],
+  ['POS_DEVICE_DELETE', 'POS_DEVICE', 'DELETE', 'Disable POS devices'],
+  ['PAYMENT_MACHINE_CREATE', 'PAYMENT_MACHINE', 'CREATE', 'Create payment machines'],
+  ['PAYMENT_MACHINE_VIEW', 'PAYMENT_MACHINE', 'VIEW', 'View payment machines'],
+  ['PAYMENT_MACHINE_UPDATE', 'PAYMENT_MACHINE', 'UPDATE', 'Update payment machines'],
+  ['PAYMENT_MACHINE_DELETE', 'PAYMENT_MACHINE', 'DELETE', 'Disable payment machines'],
   ['ITEM_CATEGORY_CREATE', 'ITEM_CATEGORY', 'CREATE', 'Create item categories'],
   ['ITEM_CATEGORY_VIEW', 'ITEM_CATEGORY', 'VIEW', 'View item categories'],
   ['ITEM_CATEGORY_UPDATE', 'ITEM_CATEGORY', 'UPDATE', 'Update item categories'],
@@ -308,6 +316,7 @@ async function main() {
       create: {
         address: 'Ground floor cafeteria',
         b2cQrEnabled: true,
+        atTableDining: true,
         closingTime: '22:00',
         hospitalId: hospital.id,
         inRoomDiningEnabled: true,
@@ -322,6 +331,7 @@ async function main() {
       update: {
         address: 'Ground floor cafeteria',
         b2cQrEnabled: true,
+        atTableDining: true,
         closingTime: '22:00',
         deletedAt: null,
         inRoomDiningEnabled: true,
@@ -336,6 +346,24 @@ async function main() {
         hospitalId_restaurantCode: {
           hospitalId: hospital.id,
           restaurantCode: 'CAFETERIA',
+        },
+      },
+    });
+
+    await tx.restaurantKitchen.upsert({
+      create: {
+        isActive: true,
+        kitchenId: kitchen.id,
+        restaurantId: restaurant.id,
+      },
+      update: {
+        deletedAt: null,
+        isActive: true,
+      },
+      where: {
+        restaurantId_kitchenId: {
+          kitchenId: kitchen.id,
+          restaurantId: restaurant.id,
         },
       },
     });

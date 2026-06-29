@@ -85,6 +85,10 @@ export class KitchenItemsRepository {
     return client.kitchen.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });

@@ -417,6 +417,9 @@ export class GrnsService {
         throw new BadRequestException('Cancelled GRN cannot be posted to stock');
       }
 
+      await this.assertActiveHospital(existing.hospitalId, tx);
+      await this.assertActiveStoreForHospital(existing.storeId, existing.hospitalId, tx);
+
       for (const line of existing.lines) {
         for (const batch of line.batches) {
           const acceptedQty = toNumber(batch.acceptedQty);

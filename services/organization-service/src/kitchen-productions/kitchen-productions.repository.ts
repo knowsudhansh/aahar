@@ -140,6 +140,10 @@ export class KitchenProductionsRepository {
     return client.kitchen.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });

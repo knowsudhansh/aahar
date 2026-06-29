@@ -80,6 +80,41 @@ export class HospitalsRepository {
         hospitalId
       }
     });
+    await client.posDeviceRestaurant.updateMany({
+      data: {
+        deletedAt: data.deletedAt,
+        isActive: false,
+        updatedBy: data.updatedBy
+      },
+      where: {
+        deletedAt: null,
+        posDevice: {
+          hospitalId
+        }
+      }
+    });
+    await client.paymentMachine.updateMany({
+      data: {
+        deletedAt: data.deletedAt,
+        isActive: false,
+        updatedBy: data.updatedBy
+      },
+      where: {
+        deletedAt: null,
+        hospitalId
+      }
+    });
+    await client.posDevice.updateMany({
+      data: {
+        deletedAt: data.deletedAt,
+        isActive: false,
+        updatedBy: data.updatedBy
+      },
+      where: {
+        deletedAt: null,
+        hospitalId
+      }
+    });
     await client.restaurant.updateMany({
       data: {
         deletedAt: data.deletedAt,

@@ -81,6 +81,10 @@ hospital_id UUID NOT NULL
 
 Stores hospital-level configuration.
 
+> BA terminology note: In the Admin Portal, this master is now shown to business users as
+> **Location Master**. Internally the database table and relationships remain `hospitals` /
+> `hospital_id` for backward compatibility during this phase.
+
 ```sql
 id UUID PRIMARY KEY
 hospital_code VARCHAR(50) UNIQUE NOT NULL

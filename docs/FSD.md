@@ -232,6 +232,10 @@ Acceptance Criteria:
 
 # 7. Hospital Administration Module
 
+> BA terminology note: The Admin Portal now shows this module as **Location Master**.
+> Internally it continues to use the Hospital entity and `hospitalId` relationships to avoid
+> breaking existing Store, Kitchen, Restaurant, GRN, Stock, Transfer, and Production flows.
+
 ---
 
 ## 7.1 Hospital List Screen

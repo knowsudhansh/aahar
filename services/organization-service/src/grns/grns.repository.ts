@@ -122,6 +122,10 @@ export class GrnsRepository {
     return client.store.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });

@@ -11,10 +11,10 @@ import {
   ClipboardList,
   CookingPot,
   CreditCard,
-  Hospital,
   LayoutDashboard,
   LogOut,
   Menu,
+  MapPin,
   PackageOpen,
   PanelLeftClose,
   PanelLeftOpen,
@@ -51,12 +51,6 @@ const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
   {
     label: 'Organization',
     items: [
-      {
-        href: '/masters/hospitals',
-        icon: Hospital,
-        label: 'Hospitals',
-        permissions: ['HOSPITAL_VIEW'],
-      },
       { href: '/masters/stores', icon: Store, label: 'Stores', permissions: ['STORE_VIEW'] },
       {
         href: '/masters/kitchens',
@@ -71,16 +65,22 @@ const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
         permissions: ['RESTAURANT_VIEW'],
       },
       {
-        href: '/masters/counters',
+        href: '/masters/pos',
         icon: CreditCard,
-        label: 'Counters',
-        permissions: ['COUNTER_VIEW'],
+        label: 'POS',
+        permissions: ['POS_DEVICE_VIEW', 'PAYMENT_MACHINE_VIEW'],
       },
     ],
   },
   {
     label: 'Masters',
     items: [
+      {
+        href: '/masters/locations',
+        icon: MapPin,
+        label: 'Locations',
+        permissions: ['HOSPITAL_VIEW'],
+      },
       {
         href: '/masters/item-categories',
         icon: Tags,
@@ -171,10 +171,13 @@ const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
 const breadcrumbLabels: Record<string, string> = {
   dashboard: 'Dashboard',
   grns: 'GRNs',
+  hospitals: 'Locations',
   inventory: 'Inventory',
   kitchen: 'Kitchen',
+  locations: 'Locations',
   masters: 'Masters',
   new: 'New',
+  pos: 'POS',
   stock: 'Stock',
 };
 
@@ -429,7 +432,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                 <Input
                   aria-label="Search workspace"
                   className="pl-9"
-                  placeholder="Search hospitals, items, transfers..."
+                  placeholder="Search locations, items, transfers..."
                   type="search"
                 />
               </div>

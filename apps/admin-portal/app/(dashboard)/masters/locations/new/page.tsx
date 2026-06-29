@@ -1,5 +1,5 @@
-import { LocationCreatePageClient } from '@/components/organization/organization-pages';
+import { HospitalCreatePageClient } from '@/components/organization/organization-pages';
 
 export default function CreateLocationPage() {
-  return <LocationCreatePageClient />;
+  return <HospitalCreatePageClient />;
 }

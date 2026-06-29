@@ -8,6 +8,7 @@ node_modules
 dist
 coverage
 services/**/src/generated
+apps/admin-portal/public/uploads/
 
 # Environment
 .env

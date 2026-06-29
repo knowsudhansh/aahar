@@ -26,6 +26,8 @@ import { KitchenItemsModule } from './kitchen-items/kitchen-items.module';
 import { KitchenProductionsModule } from './kitchen-productions/kitchen-productions.module';
 import { KitchensModule } from './kitchens/kitchens.module';
 import { LocationsModule } from './locations/locations.module';
+import { PaymentMachinesModule } from './payment-machines/payment-machines.module';
+import { PosDevicesModule } from './pos-devices/pos-devices.module';
 import { RestaurantMenusModule } from './restaurant-menus/restaurant-menus.module';
 import { RestaurantsModule } from './restaurants/restaurants.module';
 import { StockModule } from './stock/stock.module';
@@ -68,6 +70,8 @@ import { TransfersModule } from './transfers/transfers.module';
     KitchenProductionsModule,
     KitchensModule,
     LocationsModule,
+    PaymentMachinesModule,
+    PosDevicesModule,
     RestaurantMenusModule,
     RestaurantsModule,
     StockModule,

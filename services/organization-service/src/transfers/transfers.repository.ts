@@ -143,6 +143,10 @@ export class TransfersRepository {
     return client.restaurant.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });
@@ -152,6 +156,10 @@ export class TransfersRepository {
     return client.store.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });
@@ -161,6 +169,10 @@ export class TransfersRepository {
     return client.kitchen.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });

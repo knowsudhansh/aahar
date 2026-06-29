@@ -1,5 +1,5 @@
-import { CountersPageClient } from '@/components/organization/organization-pages';
+import { redirect } from 'next/navigation';
 
 export default function CountersPage() {
-  return <CountersPageClient />;
+  redirect('/masters/pos');
 }

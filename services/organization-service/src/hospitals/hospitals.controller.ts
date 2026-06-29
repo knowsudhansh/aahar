@@ -16,15 +16,15 @@ import { UpdateHospitalDto } from './dto/update-hospital.dto';
 import { HospitalsService } from './hospitals.service';
 
 @ApiBearerAuth('access-token')
-@ApiTags('hospitals')
+@ApiTags('locations')
 @Controller('hospitals')
 export class HospitalsController {
   constructor(private readonly hospitals: HospitalsService) {}
 
   @Get()
   @Permissions('HOSPITAL_VIEW')
-  @ApiOperation({ summary: 'Get hospitals' })
-  @ApiOkResponse({ description: 'Hospitals returned successfully.' })
+  @ApiOperation({ summary: 'Get locations' })
+  @ApiOkResponse({ description: 'Locations returned successfully.' })
   async list(@Query() query: ListHospitalsQueryDto) {
     return {
       data: await this.hospitals.list(query),
@@ -35,9 +35,9 @@ export class HospitalsController {
 
   @Get(':id')
   @Permissions('HOSPITAL_VIEW')
-  @ApiOperation({ summary: 'Get hospital by ID' })
+  @ApiOperation({ summary: 'Get location by ID' })
   @ApiParam({ name: 'id' })
-  @ApiOkResponse({ description: 'Hospital returned successfully.' })
+  @ApiOkResponse({ description: 'Location returned successfully.' })
   async getById(@Param('id') id: string) {
     return {
       data: await this.hospitals.getById(id),
@@ -49,8 +49,8 @@ export class HospitalsController {
   @Post()
   @Permissions('HOSPITAL_CREATE')
   @ApiBody({ type: CreateHospitalDto })
-  @ApiOperation({ summary: 'Create hospital' })
-  @ApiOkResponse({ description: 'Hospital created successfully.' })
+  @ApiOperation({ summary: 'Create location' })
+  @ApiOkResponse({ description: 'Location created successfully.' })
   async create(
     @Body() body: CreateHospitalDto,
     @CurrentUser() user: JwtRequestUser | undefined,
@@ -69,9 +69,9 @@ export class HospitalsController {
   @Put(':id')
   @Permissions('HOSPITAL_UPDATE')
   @ApiBody({ type: UpdateHospitalDto })
-  @ApiOperation({ summary: 'Update hospital' })
+  @ApiOperation({ summary: 'Update location' })
   @ApiParam({ name: 'id' })
-  @ApiOkResponse({ description: 'Hospital updated successfully.' })
+  @ApiOkResponse({ description: 'Location updated successfully.' })
   async update(
     @Param('id') id: string,
     @Body() body: UpdateHospitalDto,
@@ -90,9 +90,9 @@ export class HospitalsController {
 
   @Delete(':id')
   @Permissions('HOSPITAL_DELETE')
-  @ApiOperation({ summary: 'Delete hospital' })
+  @ApiOperation({ summary: 'Delete location' })
   @ApiParam({ name: 'id' })
-  @ApiOkResponse({ description: 'Hospital deleted successfully.' })
+  @ApiOkResponse({ description: 'Location deleted successfully.' })
   async remove(
     @Param('id') id: string,
     @CurrentUser() user: JwtRequestUser | undefined,

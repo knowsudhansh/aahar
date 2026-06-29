@@ -117,6 +117,10 @@ export class RestaurantMenusRepository {
     return client.restaurant.findFirst({
       where: {
         deletedAt: null,
+        hospital: {
+          deletedAt: null,
+          isActive: true,
+        },
         id,
       },
     });

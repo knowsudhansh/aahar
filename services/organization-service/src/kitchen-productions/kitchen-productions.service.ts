@@ -347,6 +347,8 @@ export class KitchenProductionsService {
         throw new BadRequestException('Cancelled kitchen production cannot be posted');
       }
 
+      await this.assertProductionHeader(existing.hospitalId, existing.kitchenId, undefined, tx);
+
       for (const line of existing.lines) {
         const acceptedQty = toNumber(line.acceptedQty);
 
