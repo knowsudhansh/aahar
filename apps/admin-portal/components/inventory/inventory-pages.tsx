@@ -287,14 +287,14 @@ function PageHeader({
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-4">
-        <span className="grid h-12 w-12 place-items-center rounded-lg border border-teal-100 bg-teal-50 text-teal-700">
+        <span className="grid h-12 w-12 place-items-center rounded-lg border border-emerald-100 bg-brand-mint text-brand-teal">
           <PackageCheck className="h-6 w-6" />
         </span>
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">
+          <p className="text-sm font-semibold uppercase tracking-normal text-brand-teal">
             Store Inventory
           </p>
-          <h1 className="text-2xl font-semibold tracking-normal text-slate-950">{title}</h1>
+          <h1 className="text-2xl font-semibold tracking-normal text-brand-navy">{title}</h1>
           <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
         </div>
       </div>

@@ -14,6 +14,10 @@ export function invalidateItemQueries(queryClient: QueryClient): void {
   invalidate(queryClient, [['items'], ['item-options'], ['dashboard', 'items']]);
 }
 
+export function invalidateItemPriceQueries(queryClient: QueryClient): void {
+  invalidate(queryClient, [['item-prices']]);
+}
+
 export function invalidateEmployeeQueries(queryClient: QueryClient): void {
   invalidate(queryClient, [['employees'], ['dashboard', 'employees']]);
 }

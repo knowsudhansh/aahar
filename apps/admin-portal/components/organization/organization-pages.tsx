@@ -329,7 +329,9 @@ function formatLocationOption(hospital: LocationDisplaySource): string {
   } (${code})`;
 }
 
-function formatRestaurantLocationDisplay(hospital: LocationDisplaySource | null | undefined): string {
+function formatRestaurantLocationDisplay(
+  hospital: LocationDisplaySource | null | undefined,
+): string {
   if (!hospital) {
     return 'Location not set';
   }
@@ -341,7 +343,9 @@ function formatRestaurantLocationDisplay(hospital: LocationDisplaySource | null 
   const locationDetails = [hospital.city, stateAndPostal || undefined].filter(Boolean).join(', ');
   const primaryText = [code, getLocationDisplayName(hospital)].filter(Boolean).join(' - ');
 
-  return [primaryText, locationDetails || undefined].filter(Boolean).join(', ') || 'Location not set';
+  return (
+    [primaryText, locationDetails || undefined].filter(Boolean).join(', ') || 'Location not set'
+  );
 }
 
 function toHospitalFormDefaults(hospital?: HospitalRecord): HospitalFormValues {
@@ -350,14 +354,14 @@ function toHospitalFormDefaults(hospital?: HospitalRecord): HospitalFormValues {
     area: hospital?.area ?? '',
     city: hospital?.city ?? '',
     displayName: hospital ? getLocationDisplayName(hospital) : '',
-    invoicePrefix: hospital ? getLocationInvoicePrefix(hospital) ?? '' : '',
+    invoicePrefix: hospital ? (getLocationInvoicePrefix(hospital) ?? '') : '',
     ipAddress: hospital?.ipAddress ?? '',
     isActive: hospital?.isActive ?? true,
     latitude: hospital?.latitude ?? '',
     locationCode: hospital ? getLocationCode(hospital) : '',
     longitude: hospital?.longitude ?? '',
     onlinePaymentOption: hospital?.onlinePaymentOption ?? 'NONE',
-    postalCode: hospital ? getLocationPostalCode(hospital) ?? '' : '',
+    postalCode: hospital ? (getLocationPostalCode(hospital) ?? '') : '',
     state: hospital?.state ?? '',
     title: hospital ? getLocationTitle(hospital) : '',
     visitingCardAddress: hospital?.visitingCardAddress ?? '',
@@ -409,9 +413,7 @@ function nullableText(value: string | null | undefined): string {
 
 function isRestaurantOnline(restaurant: Restaurant): boolean {
   return (
-    restaurant.isOnlineOrdersEnabled ||
-    restaurant.onlineOrders ||
-    restaurant.onlineOrderingEnabled
+    restaurant.isOnlineOrdersEnabled || restaurant.onlineOrders || restaurant.onlineOrderingEnabled
   );
 }
 
@@ -430,7 +432,10 @@ function getRestaurantOptionBadges(restaurant: Restaurant): RestaurantOptionBadg
       variant: 'info',
     },
     {
-      enabled: restaurant.isInRoomDiningEnabled || restaurant.inRoomDining || restaurant.inRoomDiningEnabled,
+      enabled:
+        restaurant.isInRoomDiningEnabled ||
+        restaurant.inRoomDining ||
+        restaurant.inRoomDiningEnabled,
       label: 'In Room Dining',
       variant: 'neutral',
     },
@@ -515,7 +520,10 @@ async function uploadRestaurantImage(file: File): Promise<string> {
     body: formData,
     method: 'POST',
   });
-  const body = (await response.json().catch(() => null)) as { message?: string; url?: string } | null;
+  const body = (await response.json().catch(() => null)) as {
+    message?: string;
+    url?: string;
+  } | null;
 
   if (!response.ok || !body?.url) {
     throw new Error(body?.message ?? 'Unable to upload image.');
@@ -658,12 +666,14 @@ function PageHeader({ action, eyebrow, icon: Icon, subtitle, title }: PageHeader
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-brand-mint text-brand-teal ring-1 ring-emerald-100">
           <Icon className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">{eyebrow}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-slate-950">{title}</h1>
+          <p className="text-sm font-semibold uppercase tracking-normal text-brand-teal">
+            {eyebrow}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-brand-navy">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
         </div>
       </div>
@@ -702,9 +712,9 @@ function StatusToggleButton({
       aria-checked={isActive}
       aria-label={isActive ? 'Set inactive' : 'Set active'}
       className={cn(
-        'inline-flex h-7 w-12 items-center rounded-full border p-1 transition focus:outline-none focus:ring-2 focus:ring-teal-600/20 disabled:cursor-not-allowed disabled:opacity-60',
+        'inline-flex h-7 w-12 items-center rounded-full border p-1 transition focus:outline-none focus:ring-2 focus:ring-brand-blue/20 disabled:cursor-not-allowed disabled:opacity-60',
         isActive
-          ? 'border-teal-500 bg-teal-500'
+          ? 'border-brand-blue bg-brand-blue'
           : 'border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800',
       )}
       disabled={disabled}
@@ -915,7 +925,9 @@ function FormShell({
 }
 
 function SectionHeading({ title }: Readonly<{ title: string }>) {
-  return <h2 className="text-sm font-semibold uppercase tracking-normal text-teal-700">{title}</h2>;
+  return (
+    <h2 className="text-sm font-semibold uppercase tracking-normal text-brand-teal">{title}</h2>
+  );
 }
 
 function SubmitButton({
@@ -928,11 +940,7 @@ function SubmitButton({
   label: string;
 }>) {
   return (
-    <Button
-      className="bg-teal-600 hover:bg-teal-700"
-      disabled={disabled || isPending}
-      type="submit"
-    >
+    <Button disabled={disabled || isPending} type="submit">
       {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
       {label}
     </Button>
@@ -972,10 +980,7 @@ function CheckboxLine({
   );
 }
 
-function Textarea({
-  className,
-  ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       className={cn(
@@ -1060,7 +1065,11 @@ function LocationMasterFormFields({
           </Select>
         </Field>
         <Field error={form.formState.errors.city?.message} label="City" name="location-city">
-          <Select disabled={disabled || !selectedState} id="location-city" {...form.register('city')}>
+          <Select
+            disabled={disabled || !selectedState}
+            id="location-city"
+            {...form.register('city')}
+          >
             <option value="">Select city</option>
             {cityOptions.map((city) => (
               <option key={city} value={city}>
@@ -1092,7 +1101,12 @@ function LocationMasterFormFields({
           <Input disabled={disabled} id="longitude" {...form.register('longitude')} />
         </Field>
         <Field error={form.formState.errors.area?.message} label="Area" name="location-area">
-          <Input disabled={disabled} id="location-area" placeholder="0" {...form.register('area')} />
+          <Input
+            disabled={disabled}
+            id="location-area"
+            placeholder="0"
+            {...form.register('area')}
+          />
         </Field>
         <Field
           error={form.formState.errors.ipAddress?.message}
@@ -1138,7 +1152,14 @@ function LocationMasterFormFields({
         <FieldError>{form.formState.errors.onlinePaymentOption?.message}</FieldError>
       </div>
       <CheckboxLine
-        input={<input className="h-4 w-4" disabled={disabled} type="checkbox" {...form.register('isActive')} />}
+        input={
+          <input
+            className="h-4 w-4"
+            disabled={disabled}
+            type="checkbox"
+            {...form.register('isActive')}
+          />
+        }
       >
         Active
       </CheckboxLine>
@@ -1423,7 +1444,16 @@ export function HospitalsPageClient() {
     },
     queryKey: [
       'hospitals',
-      { activeFilter, cityFilter, onlinePaymentFilter, page, search, sortBy, sortOrder, stateFilter },
+      {
+        activeFilter,
+        cityFilter,
+        onlinePaymentFilter,
+        page,
+        search,
+        sortBy,
+        sortOrder,
+        stateFilter,
+      },
     ],
   });
 
@@ -1596,9 +1626,7 @@ export function HospitalsPageClient() {
                       </div>
                     </td>
                     <td className="px-4 py-4 text-slate-600">{getLocationCode(location)}</td>
-                    <td className="px-4 py-4 text-slate-600">
-                      {getLocationDisplayName(location)}
-                    </td>
+                    <td className="px-4 py-4 text-slate-600">{getLocationDisplayName(location)}</td>
                     <td className="px-4 py-4 text-slate-600">{nullableText(location.state)}</td>
                     <td className="px-4 py-4 text-slate-600">{nullableText(location.city)}</td>
                     <td className="px-4 py-4 text-slate-600">
@@ -2695,13 +2723,7 @@ export function RestaurantsPageClient() {
   });
 
   const onlineToggleMutation = useMutation({
-    mutationFn: ({
-      id,
-      nextIsOnline,
-    }: {
-      id: string;
-      nextIsOnline: boolean;
-    }) =>
+    mutationFn: ({ id, nextIsOnline }: { id: string; nextIsOnline: boolean }) =>
       organizationApi.updateRestaurant(id, {
         isOnlineOrdersEnabled: nextIsOnline,
         onlineOrders: nextIsOnline,
@@ -3057,10 +3079,7 @@ export function HospitalCreatePageClient() {
           void handleSubmit(event);
         }}
       >
-        <LocationMasterFormFields
-          disabled={createHospitalMutation.isPending}
-          form={form}
-        />
+        <LocationMasterFormFields disabled={createHospitalMutation.isPending} form={form} />
         <div className="flex justify-end">
           <SubmitButton isPending={createHospitalMutation.isPending} label="Save Location" />
         </div>
@@ -3295,10 +3314,7 @@ export function StoreCreatePageClient() {
           >
             <Input id="store-name" {...form.register('storeName')} />
           </Field>
-          <Field
-            label="Store Code"
-            name="store-code"
-          >
+          <Field label="Store Code" name="store-code">
             <Input id="store-code" readOnly value="Auto-generated after save" />
           </Field>
         </div>
@@ -3415,10 +3431,7 @@ export function KitchenCreatePageClient() {
           >
             <Input id="kitchen-name" {...form.register('kitchenName')} />
           </Field>
-          <Field
-            label="Kitchen Code"
-            name="kitchen-code"
-          >
+          <Field label="Kitchen Code" name="kitchen-code">
             <Input id="kitchen-code" readOnly value="Auto-generated after save" />
           </Field>
         </div>
@@ -3680,7 +3693,11 @@ function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: st
                 />
               </Field>
             ) : null}
-            <Field error={form.formState.errors.email?.message} label="Email" name="restaurant-email">
+            <Field
+              error={form.formState.errors.email?.message}
+              label="Email"
+              name="restaurant-email"
+            >
               <Input id="restaurant-email" {...form.register('email')} />
             </Field>
             <Field
@@ -3767,11 +3784,7 @@ function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: st
           </Field>
           <CheckboxLine
             input={
-              <input
-                className="h-4 w-4"
-                type="checkbox"
-                {...form.register('isRegisteredInGst')}
-              />
+              <input className="h-4 w-4" type="checkbox" {...form.register('isRegisteredInGst')} />
             }
           >
             Registered in GST
@@ -3809,7 +3822,11 @@ function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: st
             >
               <Input id="restaurant-account" {...form.register('accountNumber')} />
             </Field>
-            <Field error={form.formState.errors.upiId?.message} label="UPI ID" name="restaurant-upi">
+            <Field
+              error={form.formState.errors.upiId?.message}
+              label="UPI ID"
+              name="restaurant-upi"
+            >
               <Input id="restaurant-upi" {...form.register('upiId')} />
             </Field>
           </div>
@@ -3871,13 +3888,25 @@ function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: st
         <div className="space-y-4 border-t border-slate-100 pt-6">
           <SectionHeading title="ERP Fields" />
           <div className="grid gap-5 sm:grid-cols-3">
-            <Field error={form.formState.errors.sunBu?.message} label="Field SUN BU" name="restaurant-sun-bu">
+            <Field
+              error={form.formState.errors.sunBu?.message}
+              label="Field SUN BU"
+              name="restaurant-sun-bu"
+            >
               <Input id="restaurant-sun-bu" {...form.register('sunBu')} />
             </Field>
-            <Field error={form.formState.errors.sunT1?.message} label="Field T1" name="restaurant-sun-t1">
+            <Field
+              error={form.formState.errors.sunT1?.message}
+              label="Field T1"
+              name="restaurant-sun-t1"
+            >
               <Input id="restaurant-sun-t1" {...form.register('sunT1')} />
             </Field>
-            <Field error={form.formState.errors.sunT2?.message} label="Field T2" name="restaurant-sun-t2">
+            <Field
+              error={form.formState.errors.sunT2?.message}
+              label="Field T2"
+              name="restaurant-sun-t2"
+            >
               <Input id="restaurant-sun-t2" {...form.register('sunT2')} />
             </Field>
           </div>

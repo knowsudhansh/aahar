@@ -1,5 +1,6 @@
+import Image from 'next/image';
 import type { LucideIcon } from 'lucide-react';
-import { ArrowUpRight, ChefHat, Inbox, Utensils } from 'lucide-react';
+import { ArrowUpRight, ChefHat, Inbox } from 'lucide-react';
 import Link from 'next/link';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { Badge, Panel, Skeleton } from '@/components/ui';
@@ -13,12 +14,18 @@ interface BrandMarkProps {
 export function BrandMark({ collapsed = false, className }: BrandMarkProps) {
   return (
     <div className={cn('flex items-center gap-3', className)}>
-      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-teal-600 text-white shadow-sm shadow-teal-900/20">
-        <Utensils className="h-5 w-5" />
+      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white p-1.5 shadow-sm shadow-slate-900/10 ring-1 ring-white/70 dark:border-slate-800 dark:bg-slate-950 dark:ring-slate-800">
+        <Image
+          alt="AAHAR"
+          className="h-full w-full object-contain"
+          height={44}
+          src="/brand/aahar-logo.png"
+          width={44}
+        />
       </span>
       {!collapsed ? (
         <span className="min-w-0">
-          <span className="block text-lg font-semibold leading-5 text-slate-950 dark:text-white">
+          <span className="block text-lg font-semibold leading-5 text-brand-navy dark:text-white">
             AAHAR
           </span>
           <span className="block truncate text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -34,19 +41,17 @@ export function MaxHealthcareMark({ className }: Readonly<{ className?: string }
   return (
     <div
       className={cn(
-        'inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950',
+        'inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950',
         className,
       )}
     >
-      <span className="grid h-7 w-7 place-items-center rounded-md bg-sky-50 text-xs font-bold text-sky-700 dark:bg-sky-950 dark:text-sky-300">
-        MAX
-      </span>
-      <span>
-        <span className="block text-sm font-semibold leading-4 text-slate-950 dark:text-white">
-          Max Healthcare
-        </span>
-        <span className="block text-xs text-slate-500 dark:text-slate-400">Hospital network</span>
-      </span>
+      <Image
+        alt="Max Healthcare"
+        className="h-8 w-auto"
+        height={32}
+        src="/brand/max-logo.svg"
+        width={110}
+      />
     </div>
   );
 }
@@ -67,20 +72,20 @@ export function AppPageHeader({
   title,
 }: AppPageHeaderProps) {
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-white/70 bg-white/80 p-5 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-slate-800 dark:bg-slate-950/75 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white/90 p-5 shadow-sm shadow-slate-900/5 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
         {Icon ? (
-          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-700 ring-1 ring-teal-100 dark:bg-teal-950 dark:text-teal-300 dark:ring-teal-900">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-brand-mint text-brand-teal ring-1 ring-emerald-100 dark:bg-teal-950 dark:text-teal-300 dark:ring-teal-900">
             <Icon className="h-5 w-5" />
           </span>
         ) : null}
         <div>
           {eyebrow ? (
-            <p className="text-xs font-semibold uppercase tracking-normal text-teal-700 dark:text-teal-300">
+            <p className="text-xs font-semibold uppercase tracking-normal text-brand-teal dark:text-teal-300">
               {eyebrow}
             </p>
           ) : null}
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-slate-950 dark:text-white">
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-brand-navy dark:text-white">
             {title}
           </h1>
           {description ? (
@@ -108,11 +113,11 @@ interface KpiCardProps {
 const toneClasses = {
   amber:
     'bg-amber-50 text-amber-700 ring-amber-100 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-900',
-  blue: 'bg-sky-50 text-sky-700 ring-sky-100 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-900',
+  blue: 'bg-blue-50 text-brand-blue ring-blue-100 dark:bg-sky-950 dark:text-sky-300 dark:ring-sky-900',
   emerald:
     'bg-emerald-50 text-emerald-700 ring-emerald-100 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-900',
   rose: 'bg-rose-50 text-rose-700 ring-rose-100 dark:bg-rose-950 dark:text-rose-300 dark:ring-rose-900',
-  teal: 'bg-teal-50 text-teal-700 ring-teal-100 dark:bg-teal-950 dark:text-teal-300 dark:ring-teal-900',
+  teal: 'bg-brand-mint text-brand-teal ring-emerald-100 dark:bg-teal-950 dark:text-teal-300 dark:ring-teal-900',
   violet:
     'bg-violet-50 text-violet-700 ring-violet-100 dark:bg-violet-950 dark:text-violet-300 dark:ring-violet-900',
 };
@@ -127,7 +132,7 @@ export function KpiCard({
   value,
 }: KpiCardProps) {
   const content = (
-    <Panel className="group h-full p-5 transition hover:-translate-y-0.5 hover:shadow-md">
+    <Panel className="group h-full p-5 transition hover:-translate-y-0.5 hover:border-blue-100 hover:shadow-md hover:shadow-brand-blue/10 dark:hover:border-slate-700">
       <div className="flex items-center justify-between gap-3">
         <span
           className={cn('grid h-11 w-11 place-items-center rounded-xl ring-1', toneClasses[tone])}
@@ -135,19 +140,19 @@ export function KpiCard({
           <Icon className="h-5 w-5" />
         </span>
         {href ? (
-          <ArrowUpRight className="h-4 w-4 text-slate-400 group-hover:text-teal-600" />
+          <ArrowUpRight className="h-4 w-4 text-slate-400 group-hover:text-brand-blue" />
         ) : null}
       </div>
       <p className="mt-5 text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
       {loading ? (
         <Skeleton className="mt-2 h-9 w-20" />
       ) : (
-        <p className="mt-2 text-3xl font-semibold tracking-normal text-slate-950 dark:text-white">
+        <p className="mt-2 text-3xl font-semibold tracking-normal text-brand-navy dark:text-white">
           {value}
         </p>
       )}
       {trend ? (
-        <p className="mt-3 text-xs font-medium text-teal-700 dark:text-teal-300">{trend}</p>
+        <p className="mt-3 text-xs font-medium text-brand-teal dark:text-teal-300">{trend}</p>
       ) : null}
     </Panel>
   );
@@ -190,11 +195,11 @@ export function PlaceholderChart() {
   const bars = [44, 72, 58, 86, 64, 92, 76];
 
   return (
-    <div className="flex h-48 items-end gap-3 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-900/50">
+    <div className="flex h-48 items-end gap-3 rounded-lg border border-dashed border-slate-200 bg-brand-mint/50 p-4 dark:border-slate-800 dark:bg-slate-900/50">
       {bars.map((height, index) => (
         <div className="flex flex-1 items-end" key={`${height}-${index}`}>
           <div
-            className="w-full rounded-t-md bg-teal-500/80 shadow-sm shadow-teal-900/10"
+            className="w-full rounded-t-md bg-brand-blue/80 shadow-sm shadow-brand-blue/10"
             style={{ height: `${height}%` }}
           />
         </div>
@@ -230,9 +235,9 @@ interface EmptyStateProps {
 
 export function EmptyState({ action, description, icon: Icon = Inbox, title }: EmptyStateProps) {
   return (
-    <div className="grid min-h-44 place-items-center rounded-lg border border-dashed border-slate-200 bg-slate-50/70 p-6 text-center dark:border-slate-800 dark:bg-slate-900/50">
+    <div className="grid min-h-44 place-items-center rounded-lg border border-dashed border-slate-200 bg-brand-mint/50 p-6 text-center dark:border-slate-800 dark:bg-slate-900/50">
       <div>
-        <span className="mx-auto grid h-11 w-11 place-items-center rounded-xl bg-white text-slate-500 shadow-sm dark:bg-slate-950 dark:text-slate-400">
+        <span className="mx-auto grid h-11 w-11 place-items-center rounded-lg bg-white text-brand-teal shadow-sm dark:bg-slate-950 dark:text-slate-400">
           <Icon className="h-5 w-5" />
         </span>
         <h3 className="mt-4 text-sm font-semibold text-slate-950 dark:text-white">{title}</h3>
@@ -296,7 +301,7 @@ export function FormSection({
   return (
     <section
       className={cn(
-        'rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-950',
+        'rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950',
         className,
       )}
       {...props}

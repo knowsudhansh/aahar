@@ -4,6 +4,7 @@ import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
+  IndianRupee,
   Loader2,
   PackageOpen,
   Pencil,
@@ -17,7 +18,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { z, type ZodError } from 'zod';
 import type {
@@ -26,12 +27,17 @@ import type {
   Employee,
   EmployeeInput,
   FoodType,
+  Hospital,
   Item,
   ItemCategory,
   ItemCategoryInput,
   ItemInput,
+  ItemPrice,
+  ItemPriceInput,
   ItemType,
   ListQuery,
+  RateType,
+  Restaurant,
   SortOrder,
 } from '@aahar/api-client';
 import { useToast } from '@/components/toast-provider';
@@ -40,6 +46,7 @@ import { getApiErrorMessage, organizationApi } from '@/lib/api';
 import {
   invalidateEmployeeQueries,
   invalidateItemCategoryQueries,
+  invalidateItemPriceQueries,
   invalidateItemQueries,
 } from '@/lib/query-invalidation';
 
@@ -47,6 +54,8 @@ const listLimit = 10;
 const skeletonRows = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
 const foodTypeValues = ['VEG', 'NON_VEG', 'EGGETARIAN'] as const;
 const itemTypeValues = ['MRP', 'READYMADE', 'LIVE'] as const;
+const rateTypeValues = ['NORMAL', 'STAFF', 'ROOM', 'COUNTER'] as const;
+const gstPercentValues = ['0', '5', '12', '18'] as const;
 const optionalText = (maxLength: number) =>
   z.string().trim().max(maxLength, `Use ${maxLength} characters or fewer.`);
 
@@ -63,6 +72,10 @@ const itemTypeSchema = z.custom<ItemType>((value) => itemTypeValues.includes(val
   message: 'Select item type.',
 });
 
+const rateTypeSchema = z.custom<RateType>((value) => rateTypeValues.includes(value as RateType), {
+  message: 'Select rate type.',
+});
+
 const itemSchema = z.object({
   categoryId: z.string().uuid('Select a category.'),
   hsnCode: optionalText(50),
@@ -76,6 +89,56 @@ const itemSchema = z.object({
     .transform((value) => (value ? Number(value) : undefined)),
   type: foodTypeSchema,
 });
+
+const itemPriceSchema = z
+  .object({
+    effectiveFrom: z.string().trim().min(1, 'Effective From is required.'),
+    effectiveTo: optionalText(20),
+    gstPercent: z.string().trim(),
+    hospitalId: z.string().uuid('Select a location.'),
+    isActive: z.boolean(),
+    isTaxInclusive: z.boolean(),
+    itemId: z.string().uuid('Select an item.'),
+    price: z
+      .string()
+      .trim()
+      .min(1, 'Price is required.')
+      .refine((value) => Number(value) > 0, 'Price must be greater than 0.')
+      .transform((value) => Number(value)),
+    rateType: rateTypeSchema,
+    restaurantId: z.string().trim(),
+  })
+  .superRefine((values, context) => {
+    if (values.isTaxInclusive && !values.gstPercent) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Select GST Percentage.',
+        path: ['gstPercent'],
+      });
+    }
+
+    if (
+      values.gstPercent &&
+      !gstPercentValues.includes(values.gstPercent as (typeof gstPercentValues)[number])
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'GST Percentage must be one of 0, 5, 12, or 18.',
+        path: ['gstPercent'],
+      });
+    }
+
+    if (
+      values.effectiveTo &&
+      new Date(values.effectiveTo).getTime() <= new Date(values.effectiveFrom).getTime()
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Effective To must be greater than Effective From.',
+        path: ['effectiveTo'],
+      });
+    }
+  });
 
 const employeeSchema = z.object({
   department: optionalText(255),
@@ -91,8 +154,11 @@ type ActiveFilter = '' | 'active' | 'inactive';
 type DiscountFilter = '' | 'eligible' | 'notEligible';
 type FoodTypeFilter = '' | FoodType;
 type ItemTypeFilter = '' | ItemType;
+type RateTypeFilter = '' | RateType;
 type EmployeeFormValues = z.infer<typeof employeeSchema>;
 type ItemCategoryFormValues = z.infer<typeof categorySchema>;
+type ItemPriceParsedValues = z.infer<typeof itemPriceSchema>;
+type ItemPriceItemOption = Pick<Item, 'id' | 'itemCode' | 'itemName' | 'itemType'>;
 
 interface ItemFormValues {
   categoryId: string;
@@ -103,6 +169,34 @@ interface ItemFormValues {
   itemType: ItemTypeFilter;
   preparationTimeMinutes: string;
   type: FoodTypeFilter;
+}
+
+interface ItemPriceFormValues {
+  effectiveFrom: string;
+  effectiveTo: string;
+  gstPercent: string;
+  hospitalId: string;
+  isActive: boolean;
+  isTaxInclusive: boolean;
+  itemId: string;
+  price: string;
+  rateType: RateTypeFilter;
+  restaurantId: string;
+}
+
+function toItemPricePayload(values: ItemPriceParsedValues): ItemPriceInput {
+  return {
+    effectiveFrom: values.effectiveFrom,
+    effectiveTo: optionalValue(values.effectiveTo) ?? null,
+    gstPercent: values.isTaxInclusive ? Number(values.gstPercent) : undefined,
+    hospitalId: values.hospitalId,
+    isActive: values.isActive,
+    isTaxInclusive: values.isTaxInclusive,
+    itemId: values.itemId,
+    price: values.price,
+    rateType: values.rateType,
+    restaurantId: optionalValue(values.restaurantId) ?? null,
+  };
 }
 
 interface PageHeaderProps {
@@ -124,6 +218,9 @@ interface PaginationControlsProps {
 const dateFormatter = new Intl.DateTimeFormat('en-IN', {
   dateStyle: 'medium',
   timeStyle: 'short',
+});
+const dateOnlyFormatter = new Intl.DateTimeFormat('en-IN', {
+  dateStyle: 'medium',
 });
 
 function activeFilterToBoolean(value: ActiveFilter): boolean | undefined {
@@ -171,11 +268,33 @@ function formatDate(value: string): string {
   return dateFormatter.format(new Date(value));
 }
 
+function formatDateOnly(value: string | null): string {
+  return value ? dateOnlyFormatter.format(new Date(value)) : 'Open ended';
+}
+
 function formatEnum(value: string): string {
   return value
     .split('_')
     .map((part) => `${part.charAt(0)}${part.slice(1).toLowerCase()}`)
     .join(' ');
+}
+
+function formatLocationOption(hospital: Hospital): string {
+  const code = hospital.locationCode || hospital.hospitalCode;
+  const name = hospital.displayName || hospital.title || hospital.hospitalName;
+  const locality = [hospital.city, hospital.state].filter(Boolean).join(', ');
+  const suffix = hospital.postalCode ? `${locality}-${hospital.postalCode}` : locality;
+
+  return [code, [name, suffix].filter(Boolean).join(', ')].filter(Boolean).join(' - ');
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    currency: 'INR',
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+    style: 'currency',
+  }).format(value);
 }
 
 function optionalValue(value: string | undefined): string | undefined {
@@ -186,6 +305,8 @@ function optionalValue(value: string | undefined): string | undefined {
 
 const similarCategoryError = 'Similar category already exists';
 const similarItemError = 'Similar item already exists';
+const overlappingItemPriceError =
+  'An active price already exists for this item, rate type, and date range.';
 
 function StatusBadge({ isActive }: Readonly<{ isActive: boolean }>) {
   return (
@@ -224,12 +345,14 @@ function PageHeader({ action, eyebrow, icon: Icon, subtitle, title }: PageHeader
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-brand-mint text-brand-teal ring-1 ring-emerald-100">
           <Icon className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">{eyebrow}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-slate-950">{title}</h1>
+          <p className="text-sm font-semibold uppercase tracking-normal text-brand-teal">
+            {eyebrow}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-brand-navy">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
         </div>
       </div>
@@ -402,11 +525,7 @@ function SubmitButton({
   label: string;
 }>) {
   return (
-    <Button
-      className="bg-teal-600 hover:bg-teal-700"
-      disabled={disabled || isPending}
-      type="submit"
-    >
+    <Button disabled={disabled || isPending} type="submit">
       {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
       {label}
     </Button>
@@ -455,6 +574,58 @@ function useItemCategoryOptions() {
       return response.data.items;
     },
     queryKey: ['item-category-options'],
+  });
+}
+
+function useHospitalOptions() {
+  return useQuery<Hospital[]>({
+    queryFn: async () => {
+      const response = await organizationApi.listHospitals({
+        isActive: true,
+        limit: 100,
+        sortBy: 'hospitalName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['location-options'],
+  });
+}
+
+function useRestaurantOptions(hospitalId?: string) {
+  return useQuery<Restaurant[]>({
+    enabled: Boolean(hospitalId),
+    queryFn: async () => {
+      const response = await organizationApi.listRestaurants({
+        hospitalId,
+        isActive: true,
+        limit: 100,
+        sortBy: 'restaurantName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['restaurant-options', hospitalId],
+  });
+}
+
+function useItemOptions(itemType?: ItemTypeFilter, search = '') {
+  return useQuery<Item[]>({
+    queryFn: async () => {
+      const response = await organizationApi.listItems({
+        isActive: true,
+        itemType: itemType || undefined,
+        limit: 100,
+        search: optionalValue(search),
+        sortBy: 'itemName',
+        sortOrder: 'asc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['item-options', itemType ?? 'all', search],
   });
 }
 
@@ -604,6 +775,298 @@ function ItemFormFields({
       >
         Active
       </CheckboxLine>
+    </>
+  );
+}
+
+function itemPriceToFormValues(itemPrice: ItemPrice): ItemPriceFormValues {
+  return {
+    effectiveFrom: itemPrice.effectiveFrom.slice(0, 10),
+    effectiveTo: itemPrice.effectiveTo?.slice(0, 10) ?? '',
+    gstPercent: itemPrice.gstPercent === null ? '' : String(itemPrice.gstPercent),
+    hospitalId: itemPrice.hospitalId,
+    isActive: itemPrice.isActive,
+    isTaxInclusive: itemPrice.isTaxInclusive,
+    itemId: itemPrice.itemId,
+    price: String(itemPrice.price),
+    rateType: itemPrice.rateType,
+    restaurantId: itemPrice.restaurantId ?? '',
+  };
+}
+
+function emptyItemPriceFormValues(): ItemPriceFormValues {
+  return {
+    effectiveFrom: new Date().toISOString().slice(0, 10),
+    effectiveTo: '',
+    gstPercent: '',
+    hospitalId: '',
+    isActive: true,
+    isTaxInclusive: true,
+    itemId: '',
+    price: '',
+    rateType: '',
+    restaurantId: '',
+  };
+}
+
+function getItemPriceItemOptions(
+  items: Item[] | undefined,
+  selectedItem?: ItemPriceItemOption,
+): ItemPriceItemOption[] | undefined {
+  if (!selectedItem) {
+    return items;
+  }
+
+  if (items?.some((item) => item.id === selectedItem.id)) {
+    return items;
+  }
+
+  return [selectedItem, ...(items ?? [])];
+}
+
+function formatItemPriceItemLabel(item: ItemPriceItemOption): string {
+  return `${item.itemName} (${item.itemCode}) - ${formatEnum(item.itemType)}`;
+}
+
+function ItemPriceItemCombobox({
+  error,
+  form,
+  isLoading,
+  items,
+  onSearch,
+  search,
+}: Readonly<{
+  error?: string;
+  form: UseFormReturn<ItemPriceFormValues>;
+  isLoading?: boolean;
+  items: ItemPriceItemOption[] | undefined;
+  onSearch: (value: string) => void;
+  search: string;
+}>) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedItemId = form.watch('itemId');
+  const selectedItem = items?.find((item) => item.id === selectedItemId);
+  const displayValue = search || (selectedItem ? formatItemPriceItemLabel(selectedItem) : '');
+  const hasItems = Boolean(items?.length);
+
+  function selectItem(item: ItemPriceItemOption): void {
+    const label = formatItemPriceItemLabel(item);
+
+    form.setValue('itemId', item.id, { shouldDirty: true, shouldValidate: true });
+    onSearch(label);
+    setIsOpen(false);
+  }
+
+  return (
+    <Field error={error} label="Item *" name="price-item">
+      <div className="relative">
+        <Input
+          aria-autocomplete="list"
+          aria-controls="price-item-options"
+          aria-expanded={isOpen}
+          aria-label="Item"
+          autoComplete="off"
+          id="price-item"
+          onBlur={() => {
+            window.setTimeout(() => setIsOpen(false), 120);
+          }}
+          onChange={(event) => {
+            onSearch(event.target.value);
+            form.setValue('itemId', '', { shouldDirty: true, shouldValidate: true });
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          placeholder="Type item name or code"
+          role="combobox"
+          value={displayValue}
+        />
+        <input type="hidden" {...form.register('itemId')} />
+        {isOpen ? (
+          <div
+            className="absolute z-30 mt-2 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white py-1 text-sm shadow-lg shadow-slate-900/10 dark:border-slate-800 dark:bg-slate-950"
+            id="price-item-options"
+            role="listbox"
+          >
+            {isLoading ? (
+              <div className="px-3 py-2 text-slate-500">Loading active items...</div>
+            ) : hasItems ? (
+              items?.map((item) => (
+                <button
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-slate-700 hover:bg-teal-50 hover:text-teal-800 dark:text-slate-200 dark:hover:bg-teal-950 dark:hover:text-teal-100"
+                  key={item.id}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    selectItem(item);
+                  }}
+                  role="option"
+                  type="button"
+                >
+                  <span className="truncate">{formatItemPriceItemLabel(item)}</span>
+                  {item.id === selectedItemId ? (
+                    <span className="text-xs font-semibold text-teal-700 dark:text-teal-300">
+                      Selected
+                    </span>
+                  ) : null}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-slate-500">
+                {search ? 'No active items match your search.' : 'No active items found.'}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </Field>
+  );
+}
+
+function ItemPriceFormFields({
+  form,
+  hospitals,
+  isItemsLoading,
+  itemSearch,
+  items,
+  onItemSearch,
+  restaurants,
+}: Readonly<{
+  form: UseFormReturn<ItemPriceFormValues>;
+  hospitals: Hospital[] | undefined;
+  isItemsLoading?: boolean;
+  itemSearch: string;
+  items: ItemPriceItemOption[] | undefined;
+  onItemSearch: (value: string) => void;
+  restaurants: Restaurant[] | undefined;
+}>) {
+  const selectedHospitalId = form.watch('hospitalId');
+  const isTaxInclusive = form.watch('isTaxInclusive');
+
+  return (
+    <>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <Field
+          error={form.formState.errors.hospitalId?.message}
+          label="Location"
+          name="price-location"
+        >
+          <Select
+            id="price-location"
+            onChange={(event) => {
+              form.setValue('hospitalId', event.target.value, { shouldValidate: true });
+              form.setValue('restaurantId', '', { shouldValidate: true });
+            }}
+            value={selectedHospitalId}
+          >
+            <option value="">Select location</option>
+            {hospitals?.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {formatLocationOption(hospital)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          error={form.formState.errors.restaurantId?.message}
+          label="Restaurant"
+          name="price-restaurant"
+        >
+          <Select
+            disabled={!selectedHospitalId}
+            id="price-restaurant"
+            {...form.register('restaurantId')}
+          >
+            <option value="">All restaurants under location</option>
+            {restaurants?.map((restaurant) => (
+              <option key={restaurant.id} value={restaurant.id}>
+                {restaurant.restaurantName} ({restaurant.restaurantCode})
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <div className="grid gap-5 sm:grid-cols-2">
+        <ItemPriceItemCombobox
+          error={form.formState.errors.itemId?.message}
+          form={form}
+          isLoading={isItemsLoading}
+          items={items}
+          onSearch={onItemSearch}
+          search={itemSearch}
+        />
+        <Field
+          error={form.formState.errors.rateType?.message}
+          label="Rate Type"
+          name="price-rate-type"
+        >
+          <Select id="price-rate-type" {...form.register('rateType')}>
+            <option value="">Select rate type</option>
+            {rateTypeValues.map((rateType) => (
+              <option key={rateType} value={rateType}>
+                {formatEnum(rateType)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <div className="grid gap-5 sm:grid-cols-3">
+        <Field error={form.formState.errors.price?.message} label="Price" name="price-value">
+          <Input
+            id="price-value"
+            min="0.01"
+            placeholder="0.00"
+            step="0.01"
+            type="number"
+            {...form.register('price')}
+          />
+        </Field>
+        {isTaxInclusive ? (
+          <Field
+            error={form.formState.errors.gstPercent?.message}
+            label="GST Percentage"
+            name="price-gst-percent"
+          >
+            <Select id="price-gst-percent" {...form.register('gstPercent')}>
+              <option value="">Select GST</option>
+              {gstPercentValues.map((gstPercent) => (
+                <option key={gstPercent} value={gstPercent}>
+                  {gstPercent}%
+                </option>
+              ))}
+            </Select>
+          </Field>
+        ) : null}
+        <Field
+          error={form.formState.errors.effectiveFrom?.message}
+          label="Effective From"
+          name="price-effective-from"
+        >
+          <Input id="price-effective-from" type="date" {...form.register('effectiveFrom')} />
+        </Field>
+        <Field
+          error={form.formState.errors.effectiveTo?.message}
+          label="Effective To"
+          name="price-effective-to"
+        >
+          <Input id="price-effective-to" type="date" {...form.register('effectiveTo')} />
+        </Field>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isTaxInclusive')} />}
+        >
+          Tax Inclusive
+        </CheckboxLine>
+        {isTaxInclusive ? (
+          <p className="text-sm text-slate-500">
+            If Tax Inclusive is enabled, the entered price already includes GST.
+          </p>
+        ) : null}
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
+          Active
+        </CheckboxLine>
+      </div>
     </>
   );
 }
@@ -1583,6 +2046,627 @@ export function ItemCreatePageClient() {
             isPending={createItemMutation.isPending}
             label="Create Item"
           />
+        </div>
+      </form>
+    </FormShell>
+  );
+}
+
+export function ItemPricesPageClient() {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [restaurantFilter, setRestaurantFilter] = useState('');
+  const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('');
+  const [rateTypeFilter, setRateTypeFilter] = useState<RateTypeFilter>('');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [effectiveDate, setEffectiveDate] = useState('');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const hospitalsQuery = useHospitalOptions();
+  const restaurantsQuery = useRestaurantOptions(hospitalFilter);
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+
+  const itemPricesQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listItemPrices({
+        effectiveDate: optionalValue(effectiveDate),
+        hospitalId: hospitalFilter || undefined,
+        isActive: activeFilterToBoolean(activeFilter),
+        itemType: itemTypeFilter || undefined,
+        limit: listLimit,
+        page,
+        rateType: rateTypeFilter || undefined,
+        restaurantId: restaurantFilter || undefined,
+        search,
+        sortBy,
+        sortOrder,
+      });
+
+      return response.data;
+    },
+    queryKey: [
+      'item-prices',
+      {
+        activeFilter,
+        effectiveDate,
+        hospitalFilter,
+        itemTypeFilter,
+        page,
+        rateTypeFilter,
+        restaurantFilter,
+        search,
+        sortBy,
+        sortOrder,
+      },
+    ],
+  });
+
+  const deleteItemPriceMutation = useMutation({
+    mutationFn: (id: string) => organizationApi.deleteItemPrice(id),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Item price was not deleted',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      invalidateItemPriceQueries(queryClient);
+      showToast({
+        title: 'Item price deleted',
+        variant: 'success',
+      });
+    },
+  });
+
+  const toggleItemPriceStatusMutation = useMutation({
+    mutationFn: ({ isActive, price }: { isActive: boolean; price: ItemPrice }) =>
+      organizationApi.updateItemPrice(price.id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Item price status was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(_response, variables) {
+      invalidateItemPriceQueries(queryClient);
+      showToast({
+        title: variables.isActive ? 'Item price activated' : 'Item price marked inactive',
+        variant: 'success',
+      });
+    },
+  });
+
+  const items = itemPricesQuery.data?.items ?? [];
+  const meta = itemPricesQuery.data?.meta ?? {
+    limit: listLimit,
+    page,
+    total: 0,
+    totalPages: 1,
+  };
+
+  function deleteItemPrice(price: ItemPrice) {
+    const shouldDelete = window.confirm(
+      `Delete ${price.item.itemName} ${formatEnum(price.rateType)} price?`,
+    );
+
+    if (shouldDelete) {
+      deleteItemPriceMutation.mutate(price.id);
+    }
+  }
+
+  function toggleItemPriceStatus(price: ItemPrice) {
+    const nextIsActive = !price.isActive;
+
+    if (
+      !nextIsActive &&
+      !window.confirm(
+        'Turning this price inactive will prevent it from being used by future restaurant operations and POS. Existing records will remain visible. Continue?',
+      )
+    ) {
+      return;
+    }
+
+    toggleItemPriceStatusMutation.mutate({ isActive: nextIsActive, price });
+  }
+
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        action={
+          <Button asChild className="bg-teal-600 hover:bg-teal-700">
+            <Link href="/masters/item-prices/new">
+              <Plus className="h-4 w-4" />
+              Create
+            </Link>
+          </Button>
+        }
+        eyebrow="Master Data"
+        icon={IndianRupee}
+        subtitle="Define sale pricing by location, restaurant, item, and rate type."
+        title="Item Prices"
+      />
+
+      <Panel>
+        <div className="grid gap-3 border-b p-4 xl:grid-cols-[minmax(0,1fr)_210px_190px_150px_150px_150px_160px_130px_auto]">
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <Select
+            onChange={(event) => {
+              setHospitalFilter(event.target.value);
+              setRestaurantFilter('');
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          >
+            <option value="">All locations</option>
+            {hospitalsQuery.data?.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {formatLocationOption(hospital)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            disabled={!hospitalFilter}
+            onChange={(event) => {
+              setRestaurantFilter(event.target.value);
+              setPage(1);
+            }}
+            value={restaurantFilter}
+          >
+            <option value="">All restaurants</option>
+            {restaurantsQuery.data?.map((restaurant) => (
+              <option key={restaurant.id} value={restaurant.id}>
+                {restaurant.restaurantName}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setItemTypeFilter(event.target.value as ItemTypeFilter);
+              setPage(1);
+            }}
+            value={itemTypeFilter}
+          >
+            <option value="">All item types</option>
+            {itemTypeValues.map((itemType) => (
+              <option key={itemType} value={itemType}>
+                {formatEnum(itemType)}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setRateTypeFilter(event.target.value as RateTypeFilter);
+              setPage(1);
+            }}
+            value={rateTypeFilter}
+          >
+            <option value="">All rate types</option>
+            {rateTypeValues.map((rateType) => (
+              <option key={rateType} value={rateType}>
+                {formatEnum(rateType)}
+              </option>
+            ))}
+          </Select>
+          <ActiveFilterSelect
+            onChange={(value) => {
+              setActiveFilter(value);
+              setPage(1);
+            }}
+            value={activeFilter}
+          />
+          <Input
+            onChange={(event) => {
+              setEffectiveDate(event.target.value);
+              setPage(1);
+            }}
+            type="date"
+            value={effectiveDate}
+          />
+          <SortOrderSelect
+            onChange={(value) => {
+              setSortOrder(value);
+              setPage(1);
+            }}
+            value={sortOrder}
+          />
+          <Button onClick={() => void itemPricesQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="grid gap-3 border-b p-4 sm:grid-cols-3">
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="createdAt">Created date</option>
+            <option value="updatedAt">Updated date</option>
+            <option value="price">Price</option>
+            <option value="rateType">Rate type</option>
+            <option value="effectiveFrom">Effective from</option>
+            <option value="effectiveTo">Effective to</option>
+            <option value="isActive">Status</option>
+          </Select>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[17%] px-4 py-3">Location</th>
+                <th className="w-[14%] px-4 py-3">Restaurant</th>
+                <th className="w-[16%] px-4 py-3">Item</th>
+                <th className="w-[11%] px-4 py-3">Item Type</th>
+                <th className="w-[10%] px-4 py-3">Rate Type</th>
+                <th className="w-[10%] px-4 py-3">Price</th>
+                <th className="w-[10%] px-4 py-3">Tax Inclusive</th>
+                <th className="w-[9%] px-4 py-3">GST %</th>
+                <th className="w-[12%] px-4 py-3">Effective From</th>
+                <th className="w-[12%] px-4 py-3">Effective To</th>
+                <th className="w-[9%] px-4 py-3">Status</th>
+                <th className="w-[13%] px-4 py-3">Active / Inactive</th>
+                <th className="w-[15%] px-4 py-3">Created Date Time</th>
+                <th className="w-[15%] px-4 py-3">Updated Date Time</th>
+                <th className="w-[16%] px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {items.length > 0 ? (
+                items.map((price) => (
+                  <tr className="hover:bg-slate-50" key={price.id}>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">
+                        {price.hospital.displayName ?? price.hospital.hospitalName}
+                      </p>
+                      <p className="text-xs text-slate-500">{price.hospital.hospitalCode}</p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {price.restaurant ? price.restaurant.restaurantName : 'All restaurants'}
+                    </td>
+                    <td className="px-4 py-4">
+                      <p className="font-medium text-slate-950">{price.item.itemName}</p>
+                      <p className="text-xs text-slate-500">{price.item.itemCode}</p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{formatEnum(price.item.itemType)}</td>
+                    <td className="px-4 py-4">
+                      <Badge className="border-cyan-200 bg-cyan-50 text-cyan-700">
+                        {formatEnum(price.rateType)}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-slate-950">
+                      {formatCurrency(price.price)}
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge variant={price.isTaxInclusive ? 'success' : 'neutral'}>
+                        {price.isTaxInclusive ? 'Yes' : 'No'}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {price.gstPercent === null ? '-' : `${price.gstPercent}%`}
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {formatDateOnly(price.effectiveFrom)}
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {formatDateOnly(price.effectiveTo)}
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge isActive={price.isActive} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleButton
+                        isActive={price.isActive}
+                        isPending={toggleItemPriceStatusMutation.isPending}
+                        onToggle={() => toggleItemPriceStatus(price)}
+                      />
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{formatDate(price.createdAt)}</td>
+                    <td className="px-4 py-4 text-slate-600">{formatDate(price.updatedAt)}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        <Button asChild size="sm" type="button" variant="outline">
+                          <Link href={`/masters/item-prices/${price.id}/edit`}>
+                            <Pencil className="h-4 w-4" />
+                            Edit
+                          </Link>
+                        </Button>
+                        <Button
+                          className="border-red-200 text-red-700 hover:bg-red-50"
+                          disabled={deleteItemPriceMutation.isPending}
+                          onClick={() => deleteItemPrice(price)}
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={15}
+                  error={itemPricesQuery.error}
+                  isError={itemPricesQuery.isError}
+                  isLoading={itemPricesQuery.isLoading}
+                  label="item prices"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+export function ItemPriceCreatePageClient() {
+  const form = useForm<ItemPriceFormValues>({
+    defaultValues: emptyItemPriceFormValues(),
+  });
+  const [itemSearch, setItemSearch] = useState('');
+  const selectedHospitalId = form.watch('hospitalId');
+  const hospitalsQuery = useHospitalOptions();
+  const restaurantsQuery = useRestaurantOptions(selectedHospitalId);
+  const itemOptionsQuery = useItemOptions(undefined, itemSearch);
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  const createItemPriceMutation = useMutation({
+    mutationFn: (body: ItemPriceInput) => organizationApi.createItemPrice(body),
+    onError(error) {
+      const message = getApiErrorMessage(error);
+
+      if (message === overlappingItemPriceError) {
+        form.setError('effectiveFrom', { message });
+      }
+
+      showToast({
+        description: message,
+        title: 'Item price was not created',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      invalidateItemPriceQueries(queryClient);
+      showToast({
+        title: 'Item price created',
+        variant: 'success',
+      });
+      router.push('/masters/item-prices');
+    },
+  });
+
+  const formValues = form.watch();
+  const canSubmit =
+    Boolean(formValues.hospitalId) &&
+    Boolean(formValues.itemId) &&
+    Boolean(formValues.rateType) &&
+    Number(formValues.price) > 0 &&
+    (!formValues.isTaxInclusive || Boolean(formValues.gstPercent)) &&
+    Boolean(formValues.effectiveFrom);
+
+  const handleSubmit = form.handleSubmit((values) => {
+    const parsed = itemPriceSchema.safeParse(values);
+
+    if (!parsed.success) {
+      applyValidationErrors(form, parsed.error);
+      return;
+    }
+
+    createItemPriceMutation.mutate(toItemPricePayload(parsed.data));
+  });
+
+  return (
+    <FormShell
+      backHref="/masters/item-prices"
+      icon={IndianRupee}
+      subtitle="Create a sale price for a location, optional restaurant, item, and rate type."
+      title="Create Item Price"
+    >
+      <form
+        className="grid gap-5"
+        onSubmit={(event) => {
+          void handleSubmit(event);
+        }}
+      >
+        <ItemPriceFormFields
+          form={form}
+          hospitals={hospitalsQuery.data}
+          isItemsLoading={itemOptionsQuery.isLoading}
+          itemSearch={itemSearch}
+          items={getItemPriceItemOptions(itemOptionsQuery.data)}
+          onItemSearch={setItemSearch}
+          restaurants={restaurantsQuery.data}
+        />
+        {hospitalsQuery.isError || restaurantsQuery.isError ? (
+          <p className="text-sm font-medium text-red-600">
+            {getApiErrorMessage(hospitalsQuery.error ?? restaurantsQuery.error)}
+          </p>
+        ) : null}
+        {itemOptionsQuery.isError ? (
+          <p className="text-sm font-medium text-red-600">
+            Unable to load active items. Please try searching again or refresh the page.
+          </p>
+        ) : null}
+        {!formValues.itemId && !itemOptionsQuery.isLoading && !itemOptionsQuery.data?.length ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            {itemSearch
+              ? 'No active items match your search.'
+              : 'Create an active item before creating item prices.'}
+          </div>
+        ) : null}
+        <div className="flex justify-end">
+          <SubmitButton
+            disabled={!canSubmit}
+            isPending={createItemPriceMutation.isPending}
+            label="Create Item Price"
+          />
+        </div>
+      </form>
+    </FormShell>
+  );
+}
+
+export function ItemPriceEditPageClient({ itemPriceId }: Readonly<{ itemPriceId: string }>) {
+  const form = useForm<ItemPriceFormValues>({
+    defaultValues: emptyItemPriceFormValues(),
+  });
+  const [itemSearch, setItemSearch] = useState('');
+  const selectedHospitalId = form.watch('hospitalId');
+  const hospitalsQuery = useHospitalOptions();
+  const restaurantsQuery = useRestaurantOptions(selectedHospitalId);
+  const itemOptionsQuery = useItemOptions(undefined, itemSearch);
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  const itemPriceQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.getItemPrice(itemPriceId);
+
+      return response.data;
+    },
+    queryKey: ['item-prices', itemPriceId],
+  });
+
+  useEffect(() => {
+    if (itemPriceQuery.data) {
+      form.reset(itemPriceToFormValues(itemPriceQuery.data));
+      setItemSearch(formatItemPriceItemLabel(itemPriceQuery.data.item));
+    }
+  }, [form, itemPriceQuery.data]);
+
+  const updateItemPriceMutation = useMutation({
+    mutationFn: (body: ItemPriceInput) => organizationApi.updateItemPrice(itemPriceId, body),
+    onError(error) {
+      const message = getApiErrorMessage(error);
+
+      if (message === overlappingItemPriceError) {
+        form.setError('effectiveFrom', { message });
+      }
+
+      showToast({
+        description: message,
+        title: 'Item price was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      invalidateItemPriceQueries(queryClient);
+      showToast({
+        title: 'Item price updated',
+        variant: 'success',
+      });
+      router.push('/masters/item-prices');
+    },
+  });
+
+  const handleSubmit = form.handleSubmit((values) => {
+    const parsed = itemPriceSchema.safeParse(values);
+
+    if (!parsed.success) {
+      applyValidationErrors(form, parsed.error);
+      return;
+    }
+
+    updateItemPriceMutation.mutate(toItemPricePayload(parsed.data));
+  });
+
+  if (itemPriceQuery.isLoading) {
+    return (
+      <FormShell
+        backHref="/masters/item-prices"
+        icon={IndianRupee}
+        subtitle="Loading sale price details."
+        title="Edit Item Price"
+      >
+        <div className="grid gap-4">
+          {skeletonRows.map((row) => (
+            <Skeleton className="h-10 w-full" key={row} />
+          ))}
+        </div>
+      </FormShell>
+    );
+  }
+
+  if (itemPriceQuery.isError) {
+    return (
+      <FormShell
+        backHref="/masters/item-prices"
+        icon={IndianRupee}
+        subtitle="Unable to load sale price details."
+        title="Edit Item Price"
+      >
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-700">
+          {getApiErrorMessage(itemPriceQuery.error)}
+        </div>
+      </FormShell>
+    );
+  }
+
+  return (
+    <FormShell
+      backHref="/masters/item-prices"
+      icon={IndianRupee}
+      subtitle="Update sale pricing and effective date range."
+      title="Edit Item Price"
+    >
+      <form
+        className="grid gap-5"
+        onSubmit={(event) => {
+          void handleSubmit(event);
+        }}
+      >
+        <ItemPriceFormFields
+          form={form}
+          hospitals={hospitalsQuery.data}
+          isItemsLoading={itemOptionsQuery.isLoading}
+          itemSearch={itemSearch}
+          items={getItemPriceItemOptions(itemOptionsQuery.data, itemPriceQuery.data?.item)}
+          onItemSearch={setItemSearch}
+          restaurants={restaurantsQuery.data}
+        />
+        {hospitalsQuery.isError || restaurantsQuery.isError ? (
+          <p className="text-sm font-medium text-red-600">
+            {getApiErrorMessage(hospitalsQuery.error ?? restaurantsQuery.error)}
+          </p>
+        ) : null}
+        {itemOptionsQuery.isError ? (
+          <p className="text-sm font-medium text-red-600">
+            Unable to load active items. Please try searching again or refresh the page.
+          </p>
+        ) : null}
+        {!form.watch('itemId') && !itemOptionsQuery.isLoading && !itemOptionsQuery.data?.length ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+            {itemSearch
+              ? 'No active items match your search.'
+              : 'Create an active item before creating item prices.'}
+          </div>
+        ) : null}
+        <div className="flex justify-end">
+          <SubmitButton isPending={updateItemPriceMutation.isPending} label="Update Item Price" />
         </div>
       </form>
     </FormShell>

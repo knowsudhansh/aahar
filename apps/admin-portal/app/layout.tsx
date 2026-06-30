@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   },
   description: 'AAHAR Food & Cafeteria Management Platform for Max Healthcare.',
   icons: {
-    icon: '/favicon.svg',
+    icon: '/brand/max-favicon.ico',
   },
 };
 

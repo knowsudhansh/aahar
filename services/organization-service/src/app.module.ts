@@ -21,6 +21,7 @@ import { GrnsModule } from './grns/grns.module';
 import { HealthController } from './health.controller';
 import { HospitalsModule } from './hospitals/hospitals.module';
 import { ItemCategoriesModule } from './item-categories/item-categories.module';
+import { ItemPricesModule } from './item-prices/item-prices.module';
 import { ItemsModule } from './items/items.module';
 import { KitchenItemsModule } from './kitchen-items/kitchen-items.module';
 import { KitchenProductionsModule } from './kitchen-productions/kitchen-productions.module';
@@ -65,6 +66,7 @@ import { TransfersModule } from './transfers/transfers.module';
     GrnsModule,
     HospitalsModule,
     ItemCategoriesModule,
+    ItemPricesModule,
     ItemsModule,
     KitchenItemsModule,
     KitchenProductionsModule,

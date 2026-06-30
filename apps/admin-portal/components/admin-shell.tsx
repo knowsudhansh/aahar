@@ -11,6 +11,7 @@ import {
   ClipboardList,
   CookingPot,
   CreditCard,
+  IndianRupee,
   LayoutDashboard,
   ListChecks,
   LogOut,
@@ -89,6 +90,12 @@ const navigationGroups: Array<{ items: NavigationItem[]; label: string }> = [
         permissions: ['ITEM_CATEGORY_VIEW'],
       },
       { href: '/masters/items', icon: PackageOpen, label: 'Items', permissions: ['ITEM_VIEW'] },
+      {
+        href: '/masters/item-prices',
+        icon: IndianRupee,
+        label: 'Item Prices',
+        permissions: ['ITEM_PRICE_VIEW'],
+      },
       {
         href: '/masters/employees',
         icon: UsersRound,
@@ -241,45 +248,46 @@ function SidebarContent({
           }
 
           return (
-          <div key={group.label}>
-            {!collapsed ? (
-              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-slate-400 dark:text-slate-500">
-                {group.label}
-              </p>
-            ) : null}
-            <div className="flex flex-col gap-1">
-              {visibleItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+            <div key={group.label}>
+              {!collapsed ? (
+                <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-normal text-slate-400 dark:text-slate-500">
+                  {group.label}
+                </p>
+              ) : null}
+              <div className="flex flex-col gap-1">
+                {visibleItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
-                return (
-                  <Link
-                    className={cn(
-                      'group flex min-h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-teal-50 hover:text-teal-800 dark:text-slate-300 dark:hover:bg-teal-950 dark:hover:text-teal-200',
-                      collapsed && 'justify-center px-2',
-                      isActive &&
-                        'bg-teal-50 text-teal-800 shadow-sm shadow-teal-900/5 dark:bg-teal-950 dark:text-teal-200',
-                    )}
-                    href={item.href}
-                    key={item.href}
-                    onClick={onNavigate}
-                    title={collapsed ? item.label : undefined}
-                  >
-                    <Icon className="h-4 w-4 shrink-0" />
-                    {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                  </Link>
-                );
-              })}
+                  return (
+                    <Link
+                      className={cn(
+                        'group flex min-h-10 items-center gap-3 rounded-md px-3 text-sm font-medium text-slate-600 transition hover:bg-brand-mint hover:text-brand-teal dark:text-slate-300 dark:hover:bg-teal-950 dark:hover:text-teal-200',
+                        collapsed && 'justify-center px-2',
+                        isActive &&
+                          'bg-brand-blue text-white shadow-sm shadow-brand-blue/20 hover:bg-brand-blue hover:text-white dark:bg-sky-600 dark:text-white',
+                      )}
+                      href={item.href}
+                      key={item.href}
+                      onClick={onNavigate}
+                      title={collapsed ? item.label : undefined}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                    </Link>
+                  );
+                })}
+              </div>
             </div>
-          </div>
           );
         })}
       </nav>
 
       {!collapsed ? (
-        <div className="mt-6 rounded-xl border border-teal-100 bg-teal-50 p-4 text-sm text-teal-900 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-100">
+        <div className="mt-6 rounded-lg border border-emerald-100 bg-brand-mint p-4 text-sm text-brand-navy dark:border-teal-900 dark:bg-teal-950 dark:text-teal-100">
+          <MaxHealthcareMark className="mb-3 w-full justify-center bg-white/85 dark:bg-slate-950/75" />
           <p className="font-semibold">AAHAR</p>
-          <p className="mt-1 text-xs text-teal-700 dark:text-teal-300">
+          <p className="mt-1 text-xs text-brand-teal dark:text-teal-300">
             Food & Cafeteria Management Platform
           </p>
         </div>
@@ -399,7 +407,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
       <div
         className={cn('transition-[padding] duration-200', isCollapsed ? 'lg:pl-24' : 'lg:pl-72')}
       >
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/85 px-4 py-3 shadow-sm shadow-slate-900/5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/85 lg:px-6">
+        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm shadow-slate-900/5 backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/90 lg:px-6">
           <div className="flex min-h-12 items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <Button
@@ -419,7 +427,9 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                       {index > 0 ? <ChevronRight className="h-3 w-3" /> : null}
                       <span
                         className={
-                          index === breadcrumbs.length - 1 ? 'text-teal-700 dark:text-teal-300' : ''
+                          index === breadcrumbs.length - 1
+                            ? 'text-brand-blue dark:text-sky-300'
+                            : ''
                         }
                       >
                         {crumb}
@@ -427,7 +437,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                     </span>
                   ))}
                 </div>
-                <p className="mt-1 truncate text-sm font-semibold text-slate-950 dark:text-white">
+                <p className="mt-1 truncate text-sm font-semibold text-brand-navy dark:text-white">
                   Max Healthcare
                 </p>
               </div>
@@ -438,7 +448,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <Input
                   aria-label="Search workspace"
-                  className="pl-9"
+                  className="border-slate-200 bg-slate-50/80 pl-9 focus:bg-white dark:bg-slate-900/70"
                   placeholder="Search locations, items, transfers..."
                   type="search"
                 />
@@ -457,12 +467,12 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                 variant="outline"
               >
                 <Bell className="h-4 w-4" />
-                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-500" />
+                <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-brand-warning" />
               </Button>
               <ThemeToggle />
               <details className="relative">
-                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-sm shadow-slate-900/5 transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900 [&::-webkit-details-marker]:hidden">
-                  <span className="grid h-9 w-9 place-items-center rounded-full bg-sky-100 text-sm font-semibold text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-sm shadow-slate-900/5 transition hover:border-brand-blue/30 hover:bg-brand-mint dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900 [&::-webkit-details-marker]:hidden">
+                  <span className="grid h-9 w-9 place-items-center rounded-full bg-blue-50 text-sm font-semibold text-brand-blue dark:bg-sky-950 dark:text-sky-300">
                     {initials || 'AU'}
                   </span>
                   <span className="hidden text-left sm:block">

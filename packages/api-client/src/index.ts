@@ -529,6 +529,7 @@ export interface PaymentMachineListQuery extends ListQuery {
 
 export type FoodType = 'VEG' | 'NON_VEG' | 'EGGETARIAN';
 export type ItemType = 'MRP' | 'READYMADE' | 'LIVE';
+export type RateType = 'COUNTER' | 'NORMAL' | 'ROOM' | 'STAFF';
 
 export interface ItemCategory {
   categoryName: string;
@@ -576,6 +577,65 @@ export interface ItemListQuery extends ListQuery {
   categoryId?: string;
   itemType?: ItemType;
   type?: FoodType;
+}
+
+export interface ItemPrice {
+  createdAt: string;
+  deletedAt: string | null;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  gstPercent: number | null;
+  hospital: HospitalSummary;
+  hospitalId: string;
+  id: string;
+  isActive: boolean;
+  isTaxInclusive: boolean;
+  item: Pick<Item, 'id' | 'isActive' | 'itemCode' | 'itemName' | 'itemType' | 'type'> & {
+    category: Pick<ItemCategory, 'categoryName' | 'id' | 'isActive'>;
+  };
+  itemId: string;
+  price: number;
+  rateType: RateType;
+  restaurant: Pick<Restaurant, 'id' | 'isActive' | 'restaurantCode' | 'restaurantName'> | null;
+  restaurantId: string | null;
+  updatedAt: string;
+}
+
+export interface ItemPriceInput {
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  gstPercent?: number;
+  hospitalId: string;
+  isActive?: boolean;
+  isTaxInclusive?: boolean;
+  itemId: string;
+  price: number;
+  rateType: RateType;
+  restaurantId?: string | null;
+}
+
+export interface ItemPriceListQuery extends ListQuery {
+  effectiveDate?: string;
+  hospitalId?: string;
+  itemId?: string;
+  itemType?: ItemType;
+  rateType?: RateType;
+  restaurantId?: string;
+}
+
+export interface ResolveItemPriceQuery {
+  date?: string;
+  hospitalId: string;
+  itemId: string;
+  rateType: RateType;
+  restaurantId?: string;
+}
+
+export interface ResolvedItemPrice {
+  itemPrice: ItemPrice | null;
+  price: number | null;
+  source: 'LOCATION' | 'MISSING' | 'RESTAURANT';
+  status: 'FOUND' | 'PRICE_MISSING';
 }
 
 export interface Employee {
@@ -1374,7 +1434,14 @@ export function createApiClient({
 
   return {
     async request<TResponse>(path: string, init: ApiRequestInit = {}) {
-      const { body, headers: initHeaders, query, skipAuthRefresh, timeoutMs: requestTimeoutMs, ...requestInit } = init;
+      const {
+        body,
+        headers: initHeaders,
+        query,
+        skipAuthRefresh,
+        timeoutMs: requestTimeoutMs,
+        ...requestInit
+      } = init;
       const normalizedPath = path.startsWith('/') ? path : `/${path}`;
       const requestPath = appendQuery(normalizedPath, query);
       const url = `${normalizedBaseUrl}${requestPath}`;
@@ -1572,6 +1639,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'POST',
       });
     },
+    createItemPrice(body: ItemPriceInput) {
+      return client.request<ApiResponse<ItemPrice>>('/item-prices', {
+        body,
+        method: 'POST',
+      });
+    },
     createKitchenItem(body: KitchenItemInput) {
       return client.request<ApiResponse<KitchenItem>>('/kitchen-items', {
         body,
@@ -1670,6 +1743,11 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'DELETE',
       });
     },
+    deleteItemPrice(id: string) {
+      return client.request<ApiResponse<{ id: string }>>(`/item-prices/${id}`, {
+        method: 'DELETE',
+      });
+    },
     deleteKitchenItem(id: string) {
       return client.request<ApiResponse<{ id: string }>>(`/kitchen-items/${id}`, {
         method: 'DELETE',
@@ -1733,6 +1811,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
     getItemCategory(id: string) {
       return client.request<ApiResponse<ItemCategory>>(`/item-categories/${id}`);
     },
+    getItemPrice(id: string) {
+      return client.request<ApiResponse<ItemPrice>>(`/item-prices/${id}`);
+    },
     getKitchenItem(id: string) {
       return client.request<ApiResponse<KitchenItem>>(`/kitchen-items/${id}`);
     },
@@ -1791,6 +1872,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
     },
     listItems(query?: ItemListQuery) {
       return client.request<ApiResponse<ApiList<Item>>>('/items', { query });
+    },
+    listItemPrices(query?: ItemPriceListQuery) {
+      return client.request<ApiResponse<ApiList<ItemPrice>>>('/item-prices', { query });
     },
     listKitchenItems(query?: KitchenItemListQuery) {
       return client.request<ApiResponse<ApiList<KitchenItem>>>('/kitchen-items', { query });
@@ -1905,6 +1989,12 @@ export function createOrganizationApi(options: ApiClientOptions) {
         method: 'PUT',
       });
     },
+    updateItemPrice(id: string, body: Partial<ItemPriceInput>) {
+      return client.request<ApiResponse<ItemPrice>>(`/item-prices/${id}`, {
+        body,
+        method: 'PUT',
+      });
+    },
     updateKitchenItem(id: string, body: Partial<KitchenItemInput>) {
       return client.request<ApiResponse<KitchenItem>>(`/kitchen-items/${id}`, {
         body,
@@ -1988,6 +2078,9 @@ export function createOrganizationApi(options: ApiClientOptions) {
       return client.request<ApiResponse<KitchenProduction>>(`/kitchen-productions/${id}/post`, {
         method: 'PATCH',
       });
+    },
+    resolveItemPrice(query: ResolveItemPriceQuery) {
+      return client.request<ApiResponse<ResolvedItemPrice>>('/item-prices/resolve', { query });
     },
     validateEmployee(employeeCode: string) {
       return client.request<ApiResponse<EmployeeValidation>>(

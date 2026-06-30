@@ -10,7 +10,7 @@ export const Input = forwardRef<HTMLInputElement, ComponentPropsWithoutRef<'inpu
   ({ className, type = 'text', ...props }, ref) => (
     <input
       className={cn(
-        'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm shadow-slate-900/5 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-teal-400 dark:focus:ring-teal-400/15 dark:disabled:bg-slate-900',
+        'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm shadow-slate-900/5 outline-none transition placeholder:text-slate-400 focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-sky-400 dark:focus:ring-sky-400/15 dark:disabled:bg-slate-900',
         className,
       )}
       ref={ref}
@@ -26,7 +26,7 @@ export const Select = forwardRef<HTMLSelectElement, ComponentPropsWithoutRef<'se
   ({ className, children, ...props }, ref) => (
     <select
       className={cn(
-        'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm shadow-slate-900/5 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-teal-400 dark:focus:ring-teal-400/15 dark:disabled:bg-slate-900',
+        'h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-950 shadow-sm shadow-slate-900/5 outline-none transition focus:border-brand-blue focus:ring-2 focus:ring-brand-blue/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-sky-400 dark:focus:ring-sky-400/15 dark:disabled:bg-slate-900',
         className,
       )}
       ref={ref}
@@ -56,7 +56,7 @@ export function FieldError({ children }: Readonly<{ children?: ReactNode }>) {
     return null;
   }
 
-  return <p className="text-sm font-medium text-red-600 dark:text-red-400">{children}</p>;
+  return <p className="text-sm font-medium text-brand-danger dark:text-red-400">{children}</p>;
 }
 
 interface FieldProps {
@@ -84,15 +84,15 @@ export function Badge({ className, variant = 'neutral', ...props }: BadgeProps) 
   return (
     <span
       className={cn(
-        'inline-flex min-h-6 items-center rounded-full border px-2.5 text-xs font-semibold capitalize',
+        'inline-flex min-h-6 items-center rounded-full border px-2.5 text-xs font-semibold capitalize shadow-sm shadow-slate-900/5',
         variant === 'success' &&
           'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300',
         variant === 'danger' &&
-          'border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300',
+          'border-red-200 bg-red-50 text-brand-danger dark:border-red-900 dark:bg-red-950 dark:text-red-300',
         variant === 'warning' &&
           'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300',
         variant === 'info' &&
-          'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-300',
+          'border-blue-200 bg-blue-50 text-brand-info dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300',
         variant === 'neutral' &&
           'border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300',
         className,
@@ -115,7 +115,7 @@ export function Panel({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-slate-200 bg-white shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20',
+        'rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20',
         className,
       )}
       {...props}

@@ -142,36 +142,40 @@ export default function LoginPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#eef8f5] px-4 py-8 text-slate-950">
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl overflow-hidden rounded-lg border bg-white shadow-xl shadow-teal-950/10 lg:grid-cols-[0.95fr_1.05fr]">
-        <section className="hidden bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between">
+    <main className="min-h-screen bg-slate-50 px-4 py-8 text-brand-navy">
+      <div className="mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-900/10 lg:grid-cols-[0.98fr_1.02fr]">
+        <section className="hidden bg-brand-navy p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
             <div className="flex items-start justify-between gap-6">
               <div className="flex items-center gap-3">
                 <Image
                   alt="AAHAR"
-                  className="h-auto rounded-lg"
-                  height={72}
+                  className="h-28 w-auto rounded-xl bg-white/95 p-3 object-contain shadow-lg shadow-black/10"
+                  height={149}
                   priority
-                  src="/aahar-logo.svg"
-                  width={240}
+                  src="/brand/aahar-logo.png"
+                  width={200}
                 />
               </div>
               <Image
                 alt="Max Healthcare"
                 className="h-auto rounded-lg shadow-lg shadow-black/10"
                 height={64}
-                src="/max-healthcare-logo.svg"
+                src="/brand/max-logo.svg"
                 width={220}
               />
             </div>
             <div className="mt-16 max-w-md">
-              <p className="text-sm font-semibold uppercase tracking-normal text-teal-300">
+              <p className="text-sm font-semibold uppercase tracking-normal text-emerald-300">
                 Max Healthcare
               </p>
               <h1 className="mt-4 text-4xl font-semibold tracking-normal">AAHAR</h1>
               <p className="mt-4 text-lg font-medium leading-7 text-slate-200">
                 Food & Cafeteria Management Platform
+              </p>
+              <p className="mt-4 max-w-sm text-sm leading-6 text-slate-300">
+                Hospital food operations, cafeteria service, and restaurant readiness in one calm
+                workspace.
               </p>
             </div>
           </div>
@@ -189,7 +193,9 @@ export default function LoginPage() {
                   className="min-h-24 rounded-lg border border-white/10 bg-white/5 p-4 shadow-sm shadow-black/10"
                   key={item.label}
                 >
-                  <Icon className="h-5 w-5 text-teal-300" />
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-300/20">
+                    <Icon className="h-5 w-5" />
+                  </span>
                   <p className="mt-4 text-sm font-semibold leading-5 text-slate-100">
                     {item.label}
                   </p>
@@ -199,21 +205,37 @@ export default function LoginPage() {
           </div>
         </section>
 
-        <section className="grid place-items-center px-5 py-10 sm:px-8">
+        <section className="grid place-items-center bg-white px-5 py-10 sm:px-8">
           <div className="w-full max-w-md">
             <div className="mb-8 flex items-center gap-3 lg:hidden">
-              <Image alt="AAHAR" height={48} src="/favicon.svg" width={48} />
+              <Image
+                alt="AAHAR"
+                className="h-14 w-14 rounded-lg border border-slate-200 bg-white p-1.5 object-contain shadow-sm"
+                height={56}
+                src="/brand/aahar-logo.png"
+                width={56}
+              />
               <div>
                 <p className="text-lg font-semibold leading-5">AAHAR</p>
                 <p className="text-xs font-medium text-slate-500">Max Healthcare</p>
               </div>
+              <Image
+                alt="Max Healthcare"
+                className="ml-auto h-auto rounded-md"
+                height={32}
+                src="/brand/max-logo.svg"
+                width={96}
+              />
             </div>
-            <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">
-              Authentication
+            <p className="text-sm font-semibold uppercase tracking-normal text-brand-teal">
+              Welcome Back
             </p>
-            <h2 className="mt-2 text-3xl font-semibold tracking-normal text-slate-950">
+            <h2 className="mt-2 text-3xl font-semibold tracking-normal text-brand-navy">
               Sign in with OTP
             </h2>
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              Enter your registered mobile number to continue to AAHAR.
+            </p>
 
             <form
               className="mt-8 space-y-5"
@@ -254,7 +276,7 @@ export default function LoginPage() {
                 </Field>
               ) : null}
               <Button
-                className="w-full bg-teal-600 hover:bg-teal-700"
+                className="w-full"
                 disabled={sendOtpMutation.isPending || verifyOtpMutation.isPending}
                 type="submit"
               >
