@@ -15,7 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Fragment, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type {
@@ -43,6 +43,7 @@ import type {
   TransferInput,
   TransferStatus,
 } from '@aahar/api-client';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -478,17 +479,19 @@ function useMappedStoreItems(storeId?: string) {
 }
 
 function HospitalSelect({
+  disabled = false,
   hospitals,
   onChange,
   value,
 }: Readonly<{
+  disabled?: boolean;
   hospitals: Hospital[];
   onChange: (value: string) => void;
   value: string;
 }>) {
   return (
-    <Select onChange={(event) => onChange(event.target.value)} value={value}>
-      <option value="">Select hospital</option>
+    <Select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
+      <option value="">Select location</option>
       {hospitals.map((hospital) => (
         <option key={hospital.id} value={hospital.id}>
           {hospital.hospitalName}
@@ -545,6 +548,7 @@ function KitchenSelect({
 }
 
 export function GrnsPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -556,6 +560,12 @@ export function GrnsPageClient() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const hospitalsQuery = useHospitals();
   const storesQuery = useStores(hospitalFilter);
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setStoreFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const grnsQuery = useQuery({
     queryFn: async () => {
@@ -655,6 +665,7 @@ export function GrnsPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -797,6 +808,7 @@ export function GrnsPageClient() {
 }
 
 export function CreateGrnPageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -805,7 +817,7 @@ export function CreateGrnPageClient() {
   const [createdGrn, setCreatedGrn] = useState<Grn | null>(null);
   const form = useForm<GrnHeaderFormValues>({
     defaultValues: {
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       invoiceNumber: '',
       poNumber: '',
       receivedBy: 'Super Admin',
@@ -827,6 +839,14 @@ export function CreateGrnPageClient() {
     () => new Map(itemOptions.map((mapping) => [mapping.itemId, mapping.item.itemName] as const)),
     [itemOptions],
   );
+
+  useEffect(() => {
+    if (scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+      form.setValue('storeId', '', { shouldValidate: true });
+      setCreatedGrn(null);
+    }
+  }, [form, scopedHospitalId]);
 
   const saveMutation = useMutation({
     mutationFn: (body: GrnInput) => organizationApi.createGrn(body),
@@ -1041,16 +1061,17 @@ export function CreateGrnPageClient() {
           <div>
             <h2 className="text-lg font-semibold tracking-normal text-slate-950">GRN Header</h2>
             <p className="text-sm text-slate-500">
-              Select the hospital and store before adding item batches.
+              Select the location and store before adding item batches.
             </p>
           </div>
           <div className="grid gap-5 md:grid-cols-2">
             <Field
               error={form.formState.errors.hospitalId?.message}
-              label="Hospital"
+              label="Location"
               name="hospitalId"
             >
               <HospitalSelect
+                disabled={isLocationSelectorLocked || isReadOnly}
                 hospitals={hospitalsQuery.data ?? []}
                 onChange={(value) => {
                   form.setValue('hospitalId', value, { shouldValidate: true });
@@ -1132,7 +1153,7 @@ export function CreateGrnPageClient() {
 
             {!selectedStoreId ? (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
-                Select a hospital and store before adding GRN lines.
+                Select a location and store before adding GRN lines.
               </div>
             ) : null}
 
@@ -1347,6 +1368,7 @@ export function CreateGrnPageClient() {
 }
 
 export function StoreStockPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
@@ -1361,6 +1383,12 @@ export function StoreStockPageClient() {
   const hospitalsQuery = useHospitals();
   const storesQuery = useStores(hospitalFilter);
   const itemOptionsQuery = useItems(itemTypeFilter || undefined);
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setStoreFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const stockQuery = useQuery({
     queryFn: async () => {
@@ -1423,6 +1451,7 @@ export function StoreStockPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -2057,6 +2086,7 @@ function allocateFefo(
 }
 
 export function TransfersPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -2080,6 +2110,16 @@ export function TransfersPageClient() {
   const allStoresQuery = useAllStores();
   const allKitchensQuery = useAllKitchens();
   const allRestaurantsQuery = useAllRestaurants();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setSourceTypeFilter('');
+    setStoreFilter('');
+    setKitchenFilter('');
+    setRestaurantFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
+
   const storeMap = useMemo(
     () => new Map((allStoresQuery.data ?? []).map((store) => [store.id, store])),
     [allStoresQuery.data],
@@ -2293,6 +2333,7 @@ export function TransfersPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -2606,6 +2647,7 @@ export function TransfersPageClient() {
 }
 
 export function CreateTransferPageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -2616,7 +2658,7 @@ export function CreateTransferPageClient() {
   const form = useForm<TransferHeaderFormValues>({
     defaultValues: {
       businessDate: '',
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       remarks: '',
       restaurantId: '',
       sourceId: '',
@@ -2648,6 +2690,16 @@ export function CreateTransferPageClient() {
     [stockGroups],
   );
   const isReadOnly = createdTransfer?.status !== undefined && createdTransfer.status !== 'DRAFT';
+
+  useEffect(() => {
+    if (scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+      form.setValue('sourceId', '', { shouldValidate: true });
+      form.setValue('restaurantId', '', { shouldValidate: true });
+      setLines([emptyTransferLine()]);
+      resetCreated();
+    }
+  }, [form, scopedHospitalId]);
 
   const saveMutation = useMutation({
     mutationFn: (body: TransferInput) => organizationApi.createTransfer(body),
@@ -2931,16 +2983,17 @@ export function CreateTransferPageClient() {
               Transfer Header
             </h2>
             <p className="text-sm text-slate-500">
-              Select hospital, source type, source, and receiving restaurant.
+              Select location, source type, source, and receiving restaurant.
             </p>
           </div>
           <div className="grid gap-5 md:grid-cols-2">
             <Field
               error={form.formState.errors.hospitalId?.message}
-              label="Hospital"
+              label="Location"
               name="hospitalId"
             >
               <HospitalSelect
+                disabled={isLocationSelectorLocked || isReadOnly}
                 hospitals={hospitalsQuery.data ?? []}
                 onChange={(value) => {
                   form.setValue('hospitalId', value, { shouldValidate: true });
@@ -3075,7 +3128,7 @@ export function CreateTransferPageClient() {
 
             {!selectedSourceId ? (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
-                Select a hospital and source before adding transfer lines.
+                Select a location and source before adding transfer lines.
               </div>
             ) : null}
 
@@ -3350,6 +3403,7 @@ export function CreateTransferPageClient() {
 }
 
 export function RestaurantStockPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
@@ -3367,6 +3421,12 @@ export function RestaurantStockPageClient() {
     itemTypeFilter ||
     (sourceFilter === 'STORE' ? 'MRP' : sourceFilter === 'KITCHEN' ? 'READYMADE' : '');
   const itemOptionsQuery = useItems(effectiveItemType || undefined);
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setRestaurantFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const stockQuery = useQuery({
     queryFn: async () => {
@@ -3421,6 +3481,7 @@ export function RestaurantStockPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -3594,6 +3655,7 @@ export function RestaurantStockPageClient() {
 }
 
 export function StockLedgersPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
@@ -3612,6 +3674,14 @@ export function StockLedgersPageClient() {
   const kitchensQuery = useKitchens(hospitalFilter);
   const restaurantsQuery = useRestaurants(hospitalFilter);
   const itemOptionsQuery = useItems();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setLocationTypeFilter('');
+    setLocationFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
+
   const locationOptions =
     locationTypeFilter === 'STORE'
       ? storesQuery.data?.map((store) => ({
@@ -3691,6 +3761,7 @@ export function StockLedgersPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);

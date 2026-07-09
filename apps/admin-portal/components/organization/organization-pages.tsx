@@ -64,6 +64,7 @@ import {
   MetricTile,
   StatusBadge as DesignStatusBadge,
 } from '@/components/design-system';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, FieldError, Input, Label, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -1395,14 +1396,19 @@ function useRestaurantOptions(hospitalId?: string) {
   });
 }
 
-function useEntityTotal(queryKey: string, queryFn: () => Promise<ApiResponse<ApiList<unknown>>>) {
+function useEntityTotal(
+  queryKey: string | readonly unknown[],
+  queryFn: () => Promise<ApiResponse<ApiList<unknown>>>,
+) {
+  const queryKeyParts = typeof queryKey === 'string' ? [queryKey] : queryKey;
+
   return useQuery({
     queryFn: async () => {
       const response = await queryFn();
 
       return response.data.meta.total;
     },
-    queryKey: ['dashboard', queryKey],
+    queryKey: ['dashboard', ...queryKeyParts],
   });
 }
 
@@ -2203,14 +2209,20 @@ export function LocationsPageClient() {
 export function StoresPageClient() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
-  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [hospitalFilter, setHospitalFilter] = useState(scopedHospitalId ?? '');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const hospitalOptionsQuery = useHospitalOptions();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const storesQuery = useQuery({
     queryFn: async () => {
@@ -2313,7 +2325,7 @@ export function StoresPageClient() {
             value={activeFilter}
           />
           <Select
-            disabled={hospitalOptionsQuery.isLoading}
+            disabled={hospitalOptionsQuery.isLoading || Boolean(scopedHospitalId)}
             onChange={(event) => {
               setHospitalFilter(event.target.value);
               setPage(1);
@@ -2413,14 +2425,20 @@ export function StoresPageClient() {
 export function KitchensPageClient() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
-  const [hospitalFilter, setHospitalFilter] = useState('');
+  const [hospitalFilter, setHospitalFilter] = useState(scopedHospitalId ?? '');
   const [sortBy, setSortBy] = useState('createdAt');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
   const hospitalOptionsQuery = useHospitalOptions();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const kitchensQuery = useQuery({
     queryFn: async () => {
@@ -2523,7 +2541,7 @@ export function KitchensPageClient() {
             value={activeFilter}
           />
           <Select
-            disabled={hospitalOptionsQuery.isLoading}
+            disabled={hospitalOptionsQuery.isLoading || Boolean(scopedHospitalId)}
             onChange={(event) => {
               setHospitalFilter(event.target.value);
               setPage(1);
@@ -2676,6 +2694,7 @@ function RestaurantOnlineSwitch({
 export function RestaurantsPageClient() {
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
@@ -2687,6 +2706,7 @@ export function RestaurantsPageClient() {
   const restaurantsQuery = useQuery({
     queryFn: async () => {
       const response = await organizationApi.listRestaurants({
+        hospitalId: scopedHospitalId,
         isActive: activeFilterToBoolean(activeFilter),
         limit: listLimit,
         page,
@@ -2697,8 +2717,12 @@ export function RestaurantsPageClient() {
 
       return response.data;
     },
-    queryKey: ['restaurants', { activeFilter, page, search, sortBy, sortOrder }],
+    queryKey: ['restaurants', { activeFilter, page, scopedHospitalId, search, sortBy, sortOrder }],
   });
+
+  useEffect(() => {
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const deleteRestaurantMutation = useMutation({
     mutationFn: (id: string) => organizationApi.deleteRestaurant(id),
@@ -3223,9 +3247,10 @@ export function LocationCreatePageClient() {
 }
 
 export function StoreCreatePageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<StoreFormValues>({
     defaultValues: {
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       isActive: true,
       storeName: '',
     },
@@ -3237,6 +3262,12 @@ export function StoreCreatePageClient() {
   const router = useRouter();
   const { showToast } = useToast();
   const canSubmitStore = isUuid(hospitalId) && hasRequiredText(storeName);
+
+  useEffect(() => {
+    if (scopedHospitalId && form.getValues('hospitalId') !== scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+    }
+  }, [form, scopedHospitalId]);
 
   const createStoreMutation = useMutation({
     mutationFn: (body: StoreInput) => organizationApi.createStore(body),
@@ -3293,7 +3324,7 @@ export function StoreCreatePageClient() {
             name="store-hospital"
           >
             <Select
-              disabled={hospitalOptionsQuery.isLoading}
+              disabled={hospitalOptionsQuery.isLoading || isLocationSelectorLocked}
               id="store-hospital"
               {...form.register('hospitalId')}
             >
@@ -3340,9 +3371,10 @@ export function StoreCreatePageClient() {
 }
 
 export function KitchenCreatePageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<KitchenFormValues>({
     defaultValues: {
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       isActive: true,
       kitchenName: '',
     },
@@ -3354,6 +3386,12 @@ export function KitchenCreatePageClient() {
   const router = useRouter();
   const { showToast } = useToast();
   const canSubmitKitchen = isUuid(hospitalId) && hasRequiredText(kitchenName);
+
+  useEffect(() => {
+    if (scopedHospitalId && form.getValues('hospitalId') !== scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+    }
+  }, [form, scopedHospitalId]);
 
   const createKitchenMutation = useMutation({
     mutationFn: (body: KitchenInput) => organizationApi.createKitchen(body),
@@ -3410,7 +3448,7 @@ export function KitchenCreatePageClient() {
             name="kitchen-hospital"
           >
             <Select
-              disabled={hospitalOptionsQuery.isLoading}
+              disabled={hospitalOptionsQuery.isLoading || isLocationSelectorLocked}
               id="kitchen-hospital"
               {...form.register('hospitalId')}
             >
@@ -3458,8 +3496,12 @@ export function KitchenCreatePageClient() {
 
 function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: string }>) {
   const isEditMode = Boolean(restaurantId);
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<RestaurantFormValues>({
-    defaultValues: restaurantFormDefaultValues,
+    defaultValues: {
+      ...restaurantFormDefaultValues,
+      hospitalId: scopedHospitalId ?? restaurantFormDefaultValues.hospitalId,
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const restaurantName = form.watch('restaurantName');
@@ -3496,6 +3538,12 @@ function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: st
     setThumbnailFile(undefined);
     setCoverFile(undefined);
   }, [form, restaurantQuery.data]);
+
+  useEffect(() => {
+    if (!isEditMode && scopedHospitalId && form.getValues('hospitalId') !== scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+    }
+  }, [form, isEditMode, scopedHospitalId]);
 
   useEffect(() => {
     return () => {
@@ -3665,7 +3713,7 @@ function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: st
               name="restaurant-location"
             >
               <Select
-                disabled={hospitalOptionsQuery.isLoading}
+                disabled={hospitalOptionsQuery.isLoading || isLocationSelectorLocked}
                 id="restaurant-location"
                 {...form.register('hospitalId')}
               >
@@ -4101,15 +4149,18 @@ export function CounterCreatePageClient() {
 }
 
 export function DashboardOverview() {
+  const { isAllLocations, locationLabel, scopedHospitalId } = useLocationContext();
   const hospitalsQuery = useEntityTotal('hospitals', () =>
     organizationApi.listHospitals({ limit: 1 }),
   );
-  const storesQuery = useEntityTotal('stores', () => organizationApi.listStores({ limit: 1 }));
-  const kitchensQuery = useEntityTotal('kitchens', () =>
-    organizationApi.listKitchens({ limit: 1 }),
+  const storesQuery = useEntityTotal(['stores', scopedHospitalId ?? 'all'], () =>
+    organizationApi.listStores({ hospitalId: scopedHospitalId, limit: 1 }),
   );
-  const restaurantsQuery = useEntityTotal('restaurants', () =>
-    organizationApi.listRestaurants({ limit: 1 }),
+  const kitchensQuery = useEntityTotal(['kitchens', scopedHospitalId ?? 'all'], () =>
+    organizationApi.listKitchens({ hospitalId: scopedHospitalId, limit: 1 }),
+  );
+  const restaurantsQuery = useEntityTotal(['restaurants', scopedHospitalId ?? 'all'], () =>
+    organizationApi.listRestaurants({ hospitalId: scopedHospitalId, limit: 1 }),
   );
   const itemsQuery = useEntityTotal('items', () => organizationApi.listItems({ limit: 1 }));
   const employeesQuery = useEntityTotal('employees', () =>
@@ -4118,6 +4169,7 @@ export function DashboardOverview() {
   const recentGrnsQuery = useQuery({
     queryFn: async () => {
       const response = await organizationApi.listGrns({
+        hospitalId: scopedHospitalId,
         limit: 5,
         sortBy: 'createdAt',
         sortOrder: 'desc',
@@ -4125,11 +4177,12 @@ export function DashboardOverview() {
 
       return response.data.items;
     },
-    queryKey: ['dashboard', 'recent-grns'],
+    queryKey: ['dashboard', 'recent-grns', scopedHospitalId ?? 'all'],
   });
   const recentTransfersQuery = useQuery({
     queryFn: async () => {
       const response = await organizationApi.listTransfers({
+        hospitalId: scopedHospitalId,
         limit: 5,
         sortBy: 'createdAt',
         sortOrder: 'desc',
@@ -4137,11 +4190,12 @@ export function DashboardOverview() {
 
       return response.data.items;
     },
-    queryKey: ['dashboard', 'recent-transfers'],
+    queryKey: ['dashboard', 'recent-transfers', scopedHospitalId ?? 'all'],
   });
   const pendingTransfersQuery = useQuery({
     queryFn: async () => {
       const response = await organizationApi.listTransfers({
+        hospitalId: scopedHospitalId,
         limit: 5,
         sortBy: 'createdAt',
         sortOrder: 'desc',
@@ -4150,7 +4204,7 @@ export function DashboardOverview() {
 
       return response.data;
     },
-    queryKey: ['dashboard', 'pending-acknowledgements'],
+    queryKey: ['dashboard', 'pending-acknowledgements', scopedHospitalId ?? 'all'],
   });
 
   const cards = [
@@ -4160,6 +4214,7 @@ export function DashboardOverview() {
       label: 'Locations',
       query: hospitalsQuery,
       tone: 'teal' as const,
+      valueOverride: isAllLocations ? undefined : 1,
     },
     {
       href: '/masters/stores',
@@ -4210,7 +4265,7 @@ export function DashboardOverview() {
           </Button>
         }
         description="Monitor location food operations, inventory movements, and pending restaurant acknowledgements."
-        eyebrow="Overview"
+        eyebrow={isAllLocations ? 'Overview - All Locations' : `Overview - ${locationLabel}`}
         icon={Building2}
         title="Dashboard"
       />
@@ -4224,8 +4279,8 @@ export function DashboardOverview() {
             label={card.label}
             loading={card.query.isLoading}
             tone={card.tone}
-            trend="Configured master data"
-            value={card.query.data ?? 0}
+            trend={isAllLocations ? 'Configured master data' : `Scoped to ${locationLabel}`}
+            value={card.valueOverride ?? card.query.data ?? 0}
           />
         ))}
       </div>

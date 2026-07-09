@@ -4,7 +4,7 @@ import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CookingPot, Loader2, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import type {
@@ -19,6 +19,7 @@ import type {
   SortOrder,
   StockBalanceStatus,
 } from '@aahar/api-client';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -378,17 +379,19 @@ function useMappedKitchenItems(kitchenId?: string) {
 }
 
 function HospitalSelect({
+  disabled = false,
   hospitals,
   onChange,
   value,
 }: Readonly<{
+  disabled?: boolean;
   hospitals: Hospital[];
   onChange: (value: string) => void;
   value: string;
 }>) {
   return (
-    <Select onChange={(event) => onChange(event.target.value)} value={value}>
-      <option value="">Select hospital</option>
+    <Select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
+      <option value="">Select location</option>
       {hospitals.map((hospital) => (
         <option key={hospital.id} value={hospital.id}>
           {hospital.hospitalName}
@@ -437,6 +440,7 @@ function productionTotals(production: KitchenProduction) {
 }
 
 export function KitchenProductionsPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -448,6 +452,12 @@ export function KitchenProductionsPageClient() {
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const hospitalsQuery = useHospitals();
   const kitchensQuery = useKitchens(hospitalFilter);
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setKitchenFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const productionsQuery = useQuery({
     queryFn: async () => {
@@ -555,6 +565,7 @@ export function KitchenProductionsPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -712,6 +723,7 @@ export function KitchenProductionsPageClient() {
 }
 
 export function CreateKitchenProductionPageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const router = useRouter();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
@@ -721,7 +733,7 @@ export function CreateKitchenProductionPageClient() {
   const form = useForm<ProductionHeaderFormValues>({
     defaultValues: {
       businessDate: defaultDateOnly(),
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       kitchenId: '',
       productionDate: defaultDateTimeLocal(),
       remarks: '',
@@ -739,6 +751,15 @@ export function CreateKitchenProductionPageClient() {
   );
   const isReadOnly =
     createdProduction?.status === 'POSTED' || createdProduction?.status === 'CANCELLED';
+
+  useEffect(() => {
+    if (scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+      form.setValue('kitchenId', '', { shouldValidate: true });
+      setLines([emptyProductionLine()]);
+      setCreatedProduction(null);
+    }
+  }, [form, scopedHospitalId]);
 
   const saveMutation = useMutation({
     mutationFn: (body: KitchenProductionInput) => organizationApi.createKitchenProduction(body),
@@ -932,15 +953,16 @@ export function CreateKitchenProductionPageClient() {
             <h2 className="text-lg font-semibold tracking-normal text-slate-950">
               Production Header
             </h2>
-            <p className="text-sm text-slate-500">Select hospital, kitchen, and business date.</p>
+            <p className="text-sm text-slate-500">Select location, kitchen, and business date.</p>
           </div>
           <div className="grid gap-5 md:grid-cols-2">
             <Field
               error={form.formState.errors.hospitalId?.message}
-              label="Hospital"
+              label="Location"
               name="hospitalId"
             >
               <HospitalSelect
+                disabled={isLocationSelectorLocked || isReadOnly}
                 hospitals={hospitalsQuery.data ?? []}
                 onChange={(value) => {
                   form.setValue('hospitalId', value, { shouldValidate: true });
@@ -1013,7 +1035,7 @@ export function CreateKitchenProductionPageClient() {
 
             {!selectedKitchenId ? (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-800">
-                Select a hospital and kitchen before adding production lines.
+                Select a location and kitchen before adding production lines.
               </div>
             ) : null}
 
@@ -1117,6 +1139,7 @@ export function CreateKitchenProductionPageClient() {
 }
 
 export function KitchenStockPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
@@ -1129,6 +1152,12 @@ export function KitchenStockPageClient() {
   const hospitalsQuery = useHospitals();
   const kitchensQuery = useKitchens(hospitalFilter);
   const itemOptionsQuery = useItems('READYMADE');
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setKitchenFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const stockQuery = useQuery({
     queryFn: async () => {
@@ -1181,6 +1210,7 @@ export function KitchenStockPageClient() {
             value={search}
           />
           <HospitalSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);

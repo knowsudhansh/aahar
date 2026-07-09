@@ -15,6 +15,7 @@ import type {
   PrimaryUpiProvider,
 } from '@aahar/api-client';
 import { AppPageHeader } from '@/components/design-system';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -351,6 +352,7 @@ function PosDeviceForm({
   const selectedRestaurantIds = form.watch('restaurantIds');
   const hospitalsQuery = useHospitalOptions();
   const restaurantsQuery = useRestaurantOptions(selectedHospitalId);
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
@@ -371,7 +373,7 @@ function PosDeviceForm({
       form.reset({
         code: '',
         entity: '',
-        hospitalId: '',
+        hospitalId: scopedHospitalId ?? '',
         hostName: '',
         isActive: true,
         isInvoicePrintEnabled: false,
@@ -380,7 +382,7 @@ function PosDeviceForm({
         restaurantIds: [],
       });
     }
-  }, [editingDevice, form]);
+  }, [editingDevice, form, scopedHospitalId]);
 
   const mutation = useMutation({
     mutationFn: (body: PosDeviceInput) =>
@@ -452,7 +454,11 @@ function PosDeviceForm({
         </div>
         <div className="grid gap-5 md:grid-cols-2">
           <Field error={form.formState.errors.hospitalId?.message} label="Location" name="pos-location">
-            <Select id="pos-location" {...form.register('hospitalId')}>
+            <Select
+              disabled={hospitalsQuery.isLoading || isLocationSelectorLocked}
+              id="pos-location"
+              {...form.register('hospitalId')}
+            >
               <option value="">Select location</option>
               {hospitalsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
@@ -538,6 +544,7 @@ function PosDeviceForm({
 }
 
 function PosDevicesTab() {
+  const { scopedHospitalId } = useLocationContext();
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
   const [editingDevice, setEditingDevice] = useState<PosDevice | undefined>();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -549,6 +556,7 @@ function PosDevicesTab() {
     queryFn: async () =>
       (
         await organizationApi.listPosDevices({
+          hospitalId: scopedHospitalId,
           isActive: activeFilterToBoolean(activeFilter),
           limit: pageLimit,
           page,
@@ -557,7 +565,7 @@ function PosDevicesTab() {
           sortOrder: 'desc',
         })
       ).data,
-    queryKey: ['pos-devices', { activeFilter, page, search }],
+    queryKey: ['pos-devices', { activeFilter, page, scopedHospitalId, search }],
   });
   const items = query.data?.items ?? [];
   const meta = query.data?.meta ?? { limit: pageLimit, page, total: 0, totalPages: 1 };
@@ -740,6 +748,7 @@ function PaymentMachineForm({
   const selectedHospitalId = form.watch('hospitalId');
   const hospitalsQuery = useHospitalOptions();
   const posDevicesQuery = usePosDeviceOptions(selectedHospitalId);
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
@@ -759,7 +768,7 @@ function PaymentMachineForm({
       });
     } else {
       form.reset({
-        hospitalId: '',
+        hospitalId: scopedHospitalId ?? '',
         isActive: true,
         name: '',
         pinelabImei: '',
@@ -771,7 +780,7 @@ function PaymentMachineForm({
         serialNumber: '',
       });
     }
-  }, [editingMachine, form]);
+  }, [editingMachine, form, scopedHospitalId]);
 
   const mutation = useMutation({
     mutationFn: (body: PaymentMachineInput) =>
@@ -843,7 +852,11 @@ function PaymentMachineForm({
             label="Location"
             name="payment-location"
           >
-            <Select id="payment-location" {...form.register('hospitalId')}>
+            <Select
+              disabled={hospitalsQuery.isLoading || isLocationSelectorLocked}
+              id="payment-location"
+              {...form.register('hospitalId')}
+            >
               <option value="">Select location</option>
               {hospitalsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
@@ -955,6 +968,7 @@ function PaymentMachineForm({
 }
 
 function PaymentMachinesTab() {
+  const { scopedHospitalId } = useLocationContext();
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
   const [editingMachine, setEditingMachine] = useState<PaymentMachine | undefined>();
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -966,6 +980,7 @@ function PaymentMachinesTab() {
     queryFn: async () =>
       (
         await organizationApi.listPaymentMachines({
+          hospitalId: scopedHospitalId,
           isActive: activeFilterToBoolean(activeFilter),
           limit: pageLimit,
           page,
@@ -974,7 +989,7 @@ function PaymentMachinesTab() {
           sortOrder: 'desc',
         })
       ).data,
-    queryKey: ['payment-machines', { activeFilter, page, search }],
+    queryKey: ['payment-machines', { activeFilter, page, scopedHospitalId, search }],
   });
   const items = query.data?.items ?? [];
   const meta = query.data?.meta ?? { limit: pageLimit, page, total: 0, totalPages: 1 };

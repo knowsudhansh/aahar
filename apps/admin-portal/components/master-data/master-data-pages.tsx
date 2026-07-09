@@ -40,6 +40,7 @@ import type {
   Restaurant,
   SortOrder,
 } from '@aahar/api-client';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -924,6 +925,7 @@ function ItemPriceItemCombobox({
 function ItemPriceFormFields({
   form,
   hospitals,
+  isLocationLocked,
   isItemsLoading,
   itemSearch,
   items,
@@ -932,6 +934,7 @@ function ItemPriceFormFields({
 }: Readonly<{
   form: UseFormReturn<ItemPriceFormValues>;
   hospitals: Hospital[] | undefined;
+  isLocationLocked?: boolean;
   isItemsLoading?: boolean;
   itemSearch: string;
   items: ItemPriceItemOption[] | undefined;
@@ -950,6 +953,7 @@ function ItemPriceFormFields({
           name="price-location"
         >
           <Select
+            disabled={isLocationLocked}
             id="price-location"
             onChange={(event) => {
               form.setValue('hospitalId', event.target.value, { shouldValidate: true });
@@ -2053,6 +2057,7 @@ export function ItemCreatePageClient() {
 }
 
 export function ItemPricesPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
@@ -2067,6 +2072,12 @@ export function ItemPricesPageClient() {
   const restaurantsQuery = useRestaurantOptions(hospitalFilter);
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setRestaurantFilter('');
+    setPage(1);
+  }, [scopedHospitalId]);
 
   const itemPricesQuery = useQuery({
     queryFn: async () => {
@@ -2200,6 +2211,7 @@ export function ItemPricesPageClient() {
             value={search}
           />
           <Select
+            disabled={Boolean(scopedHospitalId)}
             onChange={(event) => {
               setHospitalFilter(event.target.value);
               setRestaurantFilter('');
@@ -2421,6 +2433,7 @@ export function ItemPricesPageClient() {
 }
 
 export function ItemPriceCreatePageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<ItemPriceFormValues>({
     defaultValues: emptyItemPriceFormValues(),
   });
@@ -2432,6 +2445,13 @@ export function ItemPriceCreatePageClient() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const { showToast } = useToast();
+
+  useEffect(() => {
+    if (scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+      form.setValue('restaurantId', '', { shouldValidate: true });
+    }
+  }, [form, scopedHospitalId]);
 
   const createItemPriceMutation = useMutation({
     mutationFn: (body: ItemPriceInput) => organizationApi.createItemPrice(body),
@@ -2494,6 +2514,7 @@ export function ItemPriceCreatePageClient() {
         <ItemPriceFormFields
           form={form}
           hospitals={hospitalsQuery.data}
+          isLocationLocked={isLocationSelectorLocked}
           isItemsLoading={itemOptionsQuery.isLoading}
           itemSearch={itemSearch}
           items={getItemPriceItemOptions(itemOptionsQuery.data)}
@@ -2530,6 +2551,7 @@ export function ItemPriceCreatePageClient() {
 }
 
 export function ItemPriceEditPageClient({ itemPriceId }: Readonly<{ itemPriceId: string }>) {
+  const { isLocationSelectorLocked } = useLocationContext();
   const form = useForm<ItemPriceFormValues>({
     defaultValues: emptyItemPriceFormValues(),
   });
@@ -2642,6 +2664,7 @@ export function ItemPriceEditPageClient({ itemPriceId }: Readonly<{ itemPriceId:
         <ItemPriceFormFields
           form={form}
           hospitals={hospitalsQuery.data}
+          isLocationLocked={isLocationSelectorLocked}
           isItemsLoading={itemOptionsQuery.isLoading}
           itemSearch={itemSearch}
           items={getItemPriceItemOptions(itemOptionsQuery.data, itemPriceQuery.data?.item)}

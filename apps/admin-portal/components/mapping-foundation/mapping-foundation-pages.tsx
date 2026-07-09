@@ -15,7 +15,7 @@ import {
   Utensils,
   type LucideIcon,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { z, type ZodError } from 'zod';
 import type {
@@ -42,6 +42,7 @@ import type {
   TimeSlot,
   TimeSlotInput,
 } from '@aahar/api-client';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
 import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
@@ -400,16 +401,18 @@ function SortOrderSelect({
 }
 
 function HospitalFilterSelect({
+  disabled = false,
   hospitals,
   onChange,
   value,
 }: Readonly<{
+  disabled?: boolean;
   hospitals: Hospital[];
   onChange: (value: string) => void;
   value: string;
 }>) {
   return (
-    <Select onChange={(event) => onChange(event.target.value)} value={value}>
+    <Select disabled={disabled} onChange={(event) => onChange(event.target.value)} value={value}>
       <option value="">All locations</option>
       {hospitals.map((hospital) => (
         <option key={hospital.id} value={hospital.id}>
@@ -1300,6 +1303,7 @@ function useInvalidateMappingQueries(entityKey: string, optionKey: string) {
 }
 
 export function StoreItemsPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
@@ -1315,6 +1319,16 @@ export function StoreItemsPageClient() {
   const itemsQuery = useItemOptions('MRP');
   const invalidateStoreItems = useInvalidateMappingQueries('store-items', 'store-options');
   const { showToast } = useToast();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setStoreFilter('');
+    setPage(1);
+
+    if (!editingMapping) {
+      form.setValue('parentId', '', { shouldValidate: true });
+    }
+  }, [editingMapping, form, scopedHospitalId]);
 
   const mappingsQuery = useEntityList<StoreItem, StoreItemListQuery>(
     'store-items',
@@ -1514,6 +1528,7 @@ export function StoreItemsPageClient() {
             value={activeFilter}
           />
           <HospitalFilterSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -1673,6 +1688,7 @@ export function StoreItemsPageClient() {
 }
 
 export function KitchenItemsPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
@@ -1688,6 +1704,16 @@ export function KitchenItemsPageClient() {
   const itemsQuery = useItemOptions('READYMADE');
   const invalidateKitchenItems = useInvalidateMappingQueries('kitchen-items', 'kitchen-options');
   const { showToast } = useToast();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setKitchenFilter('');
+    setPage(1);
+
+    if (!editingMapping) {
+      form.setValue('parentId', '', { shouldValidate: true });
+    }
+  }, [editingMapping, form, scopedHospitalId]);
 
   const mappingsQuery = useEntityList<KitchenItem, KitchenItemListQuery>(
     'kitchen-items',
@@ -1891,6 +1917,7 @@ export function KitchenItemsPageClient() {
             value={activeFilter}
           />
           <HospitalFilterSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);
@@ -2050,6 +2077,7 @@ export function KitchenItemsPageClient() {
 }
 
 export function RestaurantMenusPageClient() {
+  const { scopedHospitalId } = useLocationContext();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
@@ -2074,6 +2102,16 @@ export function RestaurantMenusPageClient() {
   const selectedRestaurantId = form.watch('restaurantId');
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setRestaurantFilter('');
+    setPage(1);
+
+    if (!editingMenu) {
+      form.setValue('restaurantId', '', { shouldValidate: true });
+    }
+  }, [editingMenu, form, scopedHospitalId]);
 
   const referenceMenusQuery = useQuery<RestaurantMenu[]>({
     enabled: Boolean(selectedRestaurantId),
@@ -2331,6 +2369,7 @@ export function RestaurantMenusPageClient() {
             <option value="unavailable">Unavailable</option>
           </Select>
           <HospitalFilterSelect
+            disabled={Boolean(scopedHospitalId)}
             hospitals={hospitalsQuery.data ?? []}
             onChange={(value) => {
               setHospitalFilter(value);

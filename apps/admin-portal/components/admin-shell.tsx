@@ -1,12 +1,14 @@
 'use client';
 
 import { Button } from '@aahar/ui';
+import type { Hospital } from '@aahar/api-client';
 import {
   ArrowRightLeft,
   Bell,
   Boxes,
   CalendarClock,
   ChefHat,
+  Check,
   ChevronRight,
   ClipboardList,
   CookingPot,
@@ -31,10 +33,14 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BrandMark, MaxHealthcareMark } from '@/components/design-system';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useAuth } from '@/components/auth-provider';
+import {
+  formatGlobalLocationLabel,
+  useLocationContext,
+} from '@/components/location-context';
 import { Input, Skeleton } from '@/components/ui';
 import { cn } from '@/lib/utils';
 
@@ -308,6 +314,160 @@ function LoadingShell() {
   );
 }
 
+function getLocationName(location: Hospital): string {
+  return location.displayName || location.title || location.hospitalName || 'Location';
+}
+
+function getLocationMeta(location: Hospital): string {
+  return [location.city, location.state].filter(Boolean).join(', ') || 'Location';
+}
+
+function HeaderLocationSelector() {
+  const {
+    availableLocations,
+    canSelectAllLocations,
+    isLoadingLocations,
+    locationLabel,
+    selectedLocationValue,
+    setSelectedLocation,
+  } = useLocationContext();
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  function selectLocation(locationId: string | null) {
+    setSelectedLocation(locationId);
+    setIsOpen(false);
+  }
+
+  const allLocationsSelected = selectedLocationValue === 'all';
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Button
+        aria-expanded={isOpen}
+        aria-label={`Select Location. Current selection: ${locationLabel}`}
+        className={cn(
+          'relative border-slate-200 bg-white text-brand-teal hover:bg-brand-mint hover:text-brand-teal dark:border-slate-800 dark:bg-slate-950 dark:text-teal-300 dark:hover:bg-teal-950',
+          !allLocationsSelected && 'border-teal-200 bg-brand-mint dark:border-teal-900',
+        )}
+        disabled={isLoadingLocations}
+        onClick={() => setIsOpen((current) => !current)}
+        size="icon"
+        title={locationLabel}
+        type="button"
+        variant="outline"
+      >
+        <MapPin className="h-4 w-4" />
+        {!allLocationsSelected ? (
+          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-brand-emerald" />
+        ) : null}
+      </Button>
+
+      {isOpen ? (
+        <div className="absolute right-0 z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl shadow-slate-900/12 dark:border-slate-800 dark:bg-slate-950">
+          <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+            <p className="text-sm font-semibold text-slate-950 dark:text-white">
+              Select Location
+            </p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Choose a location to view location-specific data
+            </p>
+          </div>
+          <div className="max-h-80 overflow-y-auto p-2">
+            {canSelectAllLocations ? (
+              <button
+                className={cn(
+                  'flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900',
+                  allLocationsSelected && 'bg-brand-mint text-brand-navy dark:bg-teal-950/70',
+                )}
+                onClick={() => selectLocation(null)}
+                type="button"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-brand-blue shadow-sm dark:bg-slate-950 dark:text-sky-300">
+                  <MapPin className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-slate-950 dark:text-white">
+                    All Locations
+                  </span>
+                  <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                    View consolidated data across all locations
+                  </span>
+                </span>
+                {allLocationsSelected ? (
+                  <Check className="h-4 w-4 shrink-0 text-brand-teal" />
+                ) : null}
+              </button>
+            ) : null}
+
+            {availableLocations.map((location) => {
+              const isSelected = selectedLocationValue === location.id;
+
+              return (
+                <button
+                  className={cn(
+                    'mt-1 flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition hover:bg-slate-50 dark:hover:bg-slate-900',
+                    isSelected && 'bg-brand-mint text-brand-navy dark:bg-teal-950/70',
+                  )}
+                  key={location.id}
+                  onClick={() => selectLocation(location.id)}
+                  title={formatGlobalLocationLabel(location)}
+                  type="button"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-teal-50 text-brand-teal dark:bg-teal-950 dark:text-teal-300">
+                    <MapPin className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-950 dark:text-white">
+                      {getLocationName(location)}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
+                      {getLocationMeta(location)}
+                    </span>
+                  </span>
+                  {isSelected ? <Check className="h-4 w-4 shrink-0 text-brand-teal" /> : null}
+                </button>
+              );
+            })}
+
+            {!isLoadingLocations && availableLocations.length === 0 ? (
+              <div className="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                No active locations available.
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
   const { currentUser, hasPermission, isAuthenticated, isReady, logout, roles } = useAuth();
   const pathname = usePathname();
@@ -456,9 +616,7 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
             </div>
 
             <div className="flex items-center gap-2">
-              <div className="hidden xl:block">
-                <MaxHealthcareMark />
-              </div>
+              <HeaderLocationSelector />
               <Button
                 aria-label="Notifications"
                 className="relative"
@@ -470,6 +628,9 @@ export function AdminShell({ children }: Readonly<{ children: ReactNode }>) {
                 <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-brand-warning" />
               </Button>
               <ThemeToggle />
+              <div className="hidden xl:block">
+                <MaxHealthcareMark />
+              </div>
               <details className="relative">
                 <summary className="flex cursor-pointer list-none items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-3 shadow-sm shadow-slate-900/5 transition hover:border-brand-blue/30 hover:bg-brand-mint dark:border-slate-800 dark:bg-slate-950 dark:hover:bg-slate-900 [&::-webkit-details-marker]:hidden">
                   <span className="grid h-9 w-9 place-items-center rounded-full bg-blue-50 text-sm font-semibold text-brand-blue dark:bg-sky-950 dark:text-sky-300">
