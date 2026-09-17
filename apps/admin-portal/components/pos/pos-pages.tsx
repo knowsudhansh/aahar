@@ -2,7 +2,7 @@
 
 import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CreditCard, Loader2, Plus, RefreshCw, Search, Trash2 } from 'lucide-react';
+import { CreditCard, Loader2, Pencil, Plus, RefreshCw, Search, Store, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { z, type ZodError } from 'zod';
@@ -17,52 +17,82 @@ import type {
 import { AppPageHeader } from '@/components/design-system';
 import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
-import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
+import { Modal, Toggle } from '@/components/ui-controls';
+import { Field, Input, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-const pageLimit = 10;
-const primaryUpiValues: PrimaryUpiProvider[] = ['PHONEPE', 'BHARATPE', 'GOOGLE_PAY', 'OTHER'];
+// The spec caps a page at 20 records; the grid also offers the other sizes shown in the mockups.
+const defaultPageLimit = 20;
+const pageLimitOptions = [10, 20, 25, 50];
+const primaryUpiValues: PrimaryUpiProvider[] = [
+  'PHONEPE',
+  'UPI_PAYTM',
+  'UPI_SALE',
+  'UPI_BHARAT_QR',
+  'BHARATPE',
+  'GOOGLE_PAY',
+  'OTHER',
+];
+// Spec wording for the Primary UPI dropdown; legacy values keep a readable label.
+const primaryUpiLabels: Record<PrimaryUpiProvider, string> = {
+  BHARATPE: 'BharatPe',
+  GOOGLE_PAY: 'Google Pay',
+  OTHER: 'Other',
+  PHONEPE: 'PhonePe',
+  UPI_BHARAT_QR: 'UPI Bharat QR',
+  UPI_PAYTM: 'UPI Paytm',
+  UPI_SALE: 'UPI Sale',
+};
 
 const optionalText = (maxLength: number) =>
   z.string().trim().max(maxLength, `Use ${maxLength} characters or fewer.`);
 
+// Mirrors the service-side rules so the pop-up flags bad input before the request goes out.
+const numericText = (maxLength: number) =>
+  optionalText(maxLength).regex(/^$|^[0-9]+$/, 'Use digits only.');
+
+const alphanumericText = (maxLength: number) =>
+  optionalText(maxLength).regex(/^$|^[A-Za-z0-9-]+$/, 'Use letters, numbers or hyphens only.');
+
+const deviceText = (maxLength: number) =>
+  optionalText(maxLength).regex(
+    /^$|^[A-Za-z0-9][A-Za-z0-9 ._-]*$/,
+    'Use letters, numbers, spaces, dots, hyphens or underscores only.',
+  );
+
 const posDeviceSchema = z.object({
-  code: z.string().trim().min(1, 'Code is required.').max(50),
+  code: deviceText(50).min(1, 'Code is required.'),
   entity: optionalText(150),
   hospitalId: z.string().uuid('Select a location.'),
-  hostName: optionalText(150),
+  hostName: deviceText(150),
   isActive: z.boolean(),
   isInvoicePrintEnabled: z.boolean(),
   isKotPrintEnabled: z.boolean(),
-  name: z.string().trim().min(1, 'Name is required.').max(150),
+  name: deviceText(150).min(1, 'Name is required.'),
   restaurantIds: z.array(z.string().uuid()).default([]),
 });
 
 const paymentMachineSchema = z.object({
   hospitalId: z.string().uuid('Select a location.'),
   isActive: z.boolean(),
+  isDefault: z.boolean(),
   name: z.string().trim().min(1, 'Name is required.').max(150),
-  pinelabImei: optionalText(100),
-  pinelabMerchantId: optionalText(150),
-  pinelabMerchantStorePosCode: optionalText(150),
+  pinelabImei: alphanumericText(100),
+  pinelabMerchantId: numericText(150),
+  pinelabMerchantStorePosCode: numericText(150),
   pinelabSecurityToken: optionalText(500),
   posDeviceId: z.string().uuid('Select a POS device.'),
   primaryUpi: z.custom<PrimaryUpiProvider | ''>(
     (value) => value === '' || primaryUpiValues.includes(value as PrimaryUpiProvider),
     { message: 'Select a valid UPI provider.' },
   ),
-  serialNumber: optionalText(100),
+  serialNumber: numericText(100),
 });
 
 type PosDeviceFormValues = z.infer<typeof posDeviceSchema>;
 type PaymentMachineFormValues = z.infer<typeof paymentMachineSchema>;
 type ActiveFilter = '' | 'active' | 'inactive';
-
-const dateFormatter = new Intl.DateTimeFormat('en-IN', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
-});
 
 function activeFilterToBoolean(value: ActiveFilter): boolean | undefined {
   if (value === 'active') return true;
@@ -88,10 +118,6 @@ function optionalValue(value: string | undefined): string | undefined {
   return value?.trim() || undefined;
 }
 
-function formatDate(value: string): string {
-  return dateFormatter.format(new Date(value));
-}
-
 function formatLocationOption(hospital: Hospital): string {
   const details = [hospital.city, hospital.state, hospital.address].filter(Boolean).join(', ');
 
@@ -103,10 +129,7 @@ function formatLocationOption(hospital: Hospital): string {
 function formatUpiProvider(value: PrimaryUpiProvider | null | undefined): string {
   if (!value) return 'Not set';
 
-  return value
-    .split('_')
-    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
-    .join(' ');
+  return primaryUpiLabels[value] ?? value;
 }
 
 function formatRestaurants(restaurants: PosDevice['restaurants']): string {
@@ -115,14 +138,6 @@ function formatRestaurants(restaurants: PosDevice['restaurants']): string {
   }
 
   return restaurants.map((restaurant) => restaurant.restaurantName).join(', ');
-}
-
-function StatusPill({ isActive }: Readonly<{ isActive: boolean }>) {
-  return <Badge variant={isActive ? 'success' : 'danger'}>{isActive ? 'Active' : 'Inactive'}</Badge>;
-}
-
-function BooleanPill({ value }: Readonly<{ value: boolean }>) {
-  return <Badge variant={value ? 'success' : 'neutral'}>{value ? 'Enabled' : 'Disabled'}</Badge>;
 }
 
 function TableState({
@@ -175,11 +190,15 @@ function TableState({
 }
 
 function PaginationControls({
+  limit,
+  onLimitChange,
   onPageChange,
   page,
   total,
   totalPages,
 }: Readonly<{
+  limit: number;
+  onLimitChange: (limit: number) => void;
   onPageChange: (page: number) => void;
   page: number;
   total: number;
@@ -192,7 +211,19 @@ function PaginationControls({
       <span>
         Page {page} of {safeTotalPages} · {total} records
       </span>
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
+        <Select
+          aria-label="Records per page"
+          className="h-9 w-20"
+          onChange={(event) => onLimitChange(Number(event.target.value))}
+          value={limit}
+        >
+          {pageLimitOptions.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </Select>
         <Button
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
@@ -257,28 +288,6 @@ function FilterBar({
   );
 }
 
-function FormActions({
-  isPending,
-  isEditing,
-  onCancel,
-}: Readonly<{
-  isEditing: boolean;
-  isPending: boolean;
-  onCancel: () => void;
-}>) {
-  return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-      <Button onClick={onCancel} type="button" variant="outline">
-        Cancel
-      </Button>
-      <Button className="bg-teal-600 hover:bg-teal-700" disabled={isPending} type="submit">
-        {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-        {isEditing ? 'Save Changes' : 'Add New'}
-      </Button>
-    </div>
-  );
-}
-
 function useHospitalOptions() {
   return useQuery({
     queryFn: async () =>
@@ -328,12 +337,40 @@ function usePosDeviceOptions(hospitalId?: string) {
   });
 }
 
+function ToggleField({
+  description,
+  label,
+  onChange,
+  value,
+}: Readonly<{
+  description?: string;
+  label: string;
+  onChange: (checked: boolean) => void;
+  value: boolean;
+}>) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-md border bg-white px-3 py-2 shadow-sm dark:border-slate-800 dark:bg-slate-950">
+      <div>
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</p>
+        {description ? (
+          <p className="text-xs text-slate-500 dark:text-slate-400">{description}</p>
+        ) : null}
+      </div>
+      <Toggle checked={value} onChange={onChange} />
+    </div>
+  );
+}
+
+const posDeviceFormId = 'pos-device-form';
+
 function PosDeviceForm({
   editingDevice,
-  onCancel,
+  onClose,
+  open,
 }: Readonly<{
   editingDevice?: PosDevice;
-  onCancel: () => void;
+  onClose: () => void;
+  open: boolean;
 }>) {
   const form = useForm<PosDeviceFormValues>({
     defaultValues: {
@@ -348,15 +385,19 @@ function PosDeviceForm({
       restaurantIds: [],
     },
   });
-  const selectedHospitalId = form.watch('hospitalId');
-  const selectedRestaurantIds = form.watch('restaurantIds');
   const hospitalsQuery = useHospitalOptions();
-  const restaurantsQuery = useRestaurantOptions(selectedHospitalId);
   const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const isActive = form.watch('isActive');
+  const isKotPrintEnabled = form.watch('isKotPrintEnabled');
+  const isInvoicePrintEnabled = form.watch('isInvoicePrintEnabled');
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     if (editingDevice) {
       form.reset({
         code: editingDevice.code,
@@ -382,7 +423,7 @@ function PosDeviceForm({
         restaurantIds: [],
       });
     }
-  }, [editingDevice, form, scopedHospitalId]);
+  }, [editingDevice, form, open, scopedHospitalId]);
 
   const mutation = useMutation({
     mutationFn: (body: PosDeviceInput) =>
@@ -403,17 +444,9 @@ function PosDeviceForm({
         title: editingDevice ? 'POS device updated' : 'POS device created',
         variant: 'success',
       });
-      onCancel();
+      onClose();
     },
   });
-
-  const toggleRestaurant = (restaurantId: string) => {
-    const nextIds = selectedRestaurantIds.includes(restaurantId)
-      ? selectedRestaurantIds.filter((id) => id !== restaurantId)
-      : [...selectedRestaurantIds, restaurantId];
-
-    form.setValue('restaurantIds', nextIds, { shouldValidate: true });
-  };
 
   const handleSubmit = form.handleSubmit((values) => {
     const parsed = posDeviceSchema.safeParse(values);
@@ -423,131 +456,207 @@ function PosDeviceForm({
       return;
     }
 
+    // Restaurant mappings belong to the Restaurant's Accessibility pop-up, so no restaurantIds are
+    // sent from here and the saved mapping is left untouched.
     mutation.mutate({
       code: parsed.data.code,
       entity: optionalValue(parsed.data.entity),
       hospitalId: parsed.data.hospitalId,
-      hostName: optionalValue(parsed.data.hostName),
+      hostName: parsed.data.hostName.trim(),
       isActive: parsed.data.isActive,
       isInvoicePrintEnabled: parsed.data.isInvoicePrintEnabled,
       isKotPrintEnabled: parsed.data.isKotPrintEnabled,
       name: parsed.data.name,
-      restaurantIds: parsed.data.restaurantIds,
     });
   });
 
   return (
-    <Panel className="p-5">
+    <Modal
+      footer={
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button onClick={onClose} type="button" variant="outline">
+            Cancel
+          </Button>
+          <Button
+            className="bg-teal-600 hover:bg-teal-700"
+            disabled={mutation.isPending}
+            form={posDeviceFormId}
+            type="submit"
+          >
+            {mutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            Submit
+          </Button>
+        </div>
+      }
+      onClose={onClose}
+      open={open}
+      title={editingDevice ? 'Edit Pos Device' : 'New Pos Device'}
+    >
       <form
-        className="grid gap-5"
+        className="grid gap-4"
+        id={posDeviceFormId}
         onSubmit={(event) => {
           void handleSubmit(event);
         }}
       >
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-            {editingDevice ? 'Edit POS Device' : 'Create New POS Device'}
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Configure POS device setup only. Billing workflows are not part of this master.
-          </p>
-        </div>
-        <div className="grid gap-5 md:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Location" name="pos-location">
-            <Select
-              disabled={hospitalsQuery.isLoading || isLocationSelectorLocked}
-              id="pos-location"
-              {...form.register('hospitalId')}
-            >
-              <option value="">Select location</option>
-              {hospitalsQuery.data?.map((hospital) => (
-                <option key={hospital.id} value={hospital.id}>
-                  {formatLocationOption(hospital)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field error={form.formState.errors.name?.message} label="Name" name="pos-name">
-            <Input id="pos-name" {...form.register('name')} />
-          </Field>
-          <Field error={form.formState.errors.code?.message} label="Code" name="pos-code">
-            <Input id="pos-code" {...form.register('code')} />
-          </Field>
-          <Field error={form.formState.errors.entity?.message} label="Entity" name="pos-entity">
-            <Input id="pos-entity" placeholder="Optional" {...form.register('entity')} />
-          </Field>
-          <Field error={form.formState.errors.hostName?.message} label="Host Name" name="pos-host">
-            <Input id="pos-host" placeholder="Optional" {...form.register('hostName')} />
-          </Field>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">Restaurants</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Optional. Select one or more restaurants that can use this POS device.
-            </p>
-          </div>
-          <div className="grid gap-2 md:grid-cols-2">
-            {!selectedHospitalId ? (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                Select a location to load restaurants.
-              </div>
-            ) : null}
-            {selectedHospitalId && restaurantsQuery.isLoading ? <Skeleton className="h-11" /> : null}
-            {selectedHospitalId && restaurantsQuery.data?.length === 0 ? (
-              <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-                No active restaurants found for this location.
-              </div>
-            ) : null}
-            {restaurantsQuery.data?.map((restaurant) => (
-              <label
-                className="flex min-h-10 items-center gap-3 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
-                key={restaurant.id}
-              >
-                <input
-                  checked={selectedRestaurantIds.includes(restaurant.id)}
-                  className="h-4 w-4"
-                  onChange={() => toggleRestaurant(restaurant.id)}
-                  type="checkbox"
-                />
-                {restaurant.restaurantName}
-              </label>
-            ))}
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="flex min-h-10 items-center gap-3 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-            <input className="h-4 w-4" type="checkbox" {...form.register('isKotPrintEnabled')} />
-            KOT Print
-          </label>
-          <label className="flex min-h-10 items-center gap-3 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-            <input
-              className="h-4 w-4"
-              type="checkbox"
-              {...form.register('isInvoicePrintEnabled')}
-            />
-            Invoice Print
-          </label>
-          <label className="flex min-h-10 items-center gap-3 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-            <input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />
-            Active
-          </label>
-        </div>
-        <FormActions
-          isEditing={Boolean(editingDevice)}
-          isPending={mutation.isPending}
-          onCancel={onCancel}
+        <Field error={form.formState.errors.name?.message} label="Name" name="pos-name">
+          <Input id="pos-name" {...form.register('name')} />
+        </Field>
+        <Field error={form.formState.errors.code?.message} label="Code" name="pos-code">
+          <Input id="pos-code" {...form.register('code')} />
+        </Field>
+        <ToggleField
+          label="Active"
+          onChange={(checked) => form.setValue('isActive', checked)}
+          value={isActive}
         />
+        <Field
+          error={form.formState.errors.hospitalId?.message}
+          label="Location"
+          name="pos-location"
+        >
+          <Select
+            disabled={hospitalsQuery.isLoading || isLocationSelectorLocked}
+            id="pos-location"
+            {...form.register('hospitalId')}
+          >
+            <option value="">Select location</option>
+            {hospitalsQuery.data?.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {formatLocationOption(hospital)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field error={form.formState.errors.entity?.message} label="Entity" name="pos-entity">
+          <Input id="pos-entity" placeholder="Optional" {...form.register('entity')} />
+        </Field>
+        <Field error={form.formState.errors.hostName?.message} label="Host Name" name="pos-host">
+          <Input id="pos-host" placeholder="Optional" {...form.register('hostName')} />
+        </Field>
+        <ToggleField
+          label="KOT Print"
+          onChange={(checked) => form.setValue('isKotPrintEnabled', checked)}
+          value={isKotPrintEnabled}
+        />
+        <ToggleField
+          label="Invoice Print"
+          onChange={(checked) => form.setValue('isInvoicePrintEnabled', checked)}
+          value={isInvoicePrintEnabled}
+        />
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Map restaurants from the Restaurant&apos;s Accessibility action on the grid.
+        </p>
       </form>
-    </Panel>
+    </Modal>
+  );
+}
+
+function RestaurantAccessibilityModal({
+  device,
+  onClose,
+}: Readonly<{
+  device?: PosDevice;
+  onClose: () => void;
+}>) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const restaurantsQuery = useRestaurantOptions(device?.hospitalId);
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    setSelectedIds(device?.restaurantIds ?? []);
+  }, [device]);
+
+  const mutation = useMutation({
+    mutationFn: (restaurantIds: string[]) => {
+      if (!device) {
+        throw new Error('No POS device selected.');
+      }
+
+      return organizationApi.updatePosDevice(device.id, { restaurantIds });
+    },
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Restaurant accessibility was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['pos-devices'] });
+      showToast({ title: 'Restaurant accessibility updated', variant: 'success' });
+      onClose();
+    },
+  });
+
+  const toggleRestaurant = (restaurantId: string) => {
+    setSelectedIds((current) =>
+      current.includes(restaurantId)
+        ? current.filter((id) => id !== restaurantId)
+        : [...current, restaurantId],
+    );
+  };
+
+  return (
+    <Modal
+      footer={
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button onClick={onClose} type="button" variant="outline">
+            Cancel
+          </Button>
+          <Button
+            className="bg-teal-600 hover:bg-teal-700"
+            disabled={mutation.isPending || !device}
+            onClick={() => mutation.mutate(selectedIds)}
+            type="button"
+          >
+            {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            Submit
+          </Button>
+        </div>
+      }
+      onClose={onClose}
+      open={Boolean(device)}
+      title={"Restaurant's Accessibility - " + (device?.code ?? '')}
+    >
+      <div className="grid gap-2">
+        {restaurantsQuery.isLoading ? <Skeleton className="h-11" /> : null}
+        {!restaurantsQuery.isLoading && restaurantsQuery.data?.length === 0 ? (
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            No active restaurants found for this location.
+          </p>
+        ) : null}
+        {restaurantsQuery.data?.map((restaurant) => (
+          <label
+            className="flex min-h-10 cursor-pointer items-center gap-3 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+            key={restaurant.id}
+          >
+            <input
+              checked={selectedIds.includes(restaurant.id)}
+              className="h-4 w-4 accent-teal-600"
+              onChange={() => toggleRestaurant(restaurant.id)}
+              type="checkbox"
+            />
+            {restaurant.restaurantName}
+          </label>
+        ))}
+      </div>
+    </Modal>
   );
 }
 
 function PosDevicesTab() {
   const { scopedHospitalId } = useLocationContext();
+  const [accessibilityDevice, setAccessibilityDevice] = useState<PosDevice | undefined>();
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
   const [editingDevice, setEditingDevice] = useState<PosDevice | undefined>();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [limit, setLimit] = useState(defaultPageLimit);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
@@ -558,17 +667,17 @@ function PosDevicesTab() {
         await organizationApi.listPosDevices({
           hospitalId: scopedHospitalId,
           isActive: activeFilterToBoolean(activeFilter),
-          limit: pageLimit,
+          limit,
           page,
           search,
           sortBy: 'createdAt',
           sortOrder: 'desc',
         })
       ).data,
-    queryKey: ['pos-devices', { activeFilter, page, scopedHospitalId, search }],
+    queryKey: ['pos-devices', { activeFilter, limit, page, scopedHospitalId, search }],
   });
   const items = query.data?.items ?? [];
-  const meta = query.data?.meta ?? { limit: pageLimit, page, total: 0, totalPages: 1 };
+  const meta = query.data?.meta ?? { limit, page, total: 0, totalPages: 1 };
   const deleteMutation = useMutation({
     mutationFn: (id: string) => organizationApi.deletePosDevice(id),
     onError(error) {
@@ -584,10 +693,32 @@ function PosDevicesTab() {
       showToast({ title: 'POS device deactivated', variant: 'success' });
     },
   });
+  // Grid toggles for Status, KOT Print and Invoice Print write straight through to the record.
+  const flagMutation = useMutation({
+    mutationFn: ({ body, id }: { body: Partial<PosDeviceInput>; id: string }) =>
+      organizationApi.updatePosDevice(id, body),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'POS device was not updated',
+        variant: 'error',
+      });
+      void query.refetch();
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['pos-devices'] });
+      void queryClient.invalidateQueries({ queryKey: ['payment-machine-pos-device-options'] });
+    },
+  });
 
   const openCreateForm = () => {
     setEditingDevice(undefined);
     setIsFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setEditingDevice(undefined);
+    setIsFormOpen(false);
   };
 
   return (
@@ -595,18 +726,14 @@ function PosDevicesTab() {
       <div className="flex justify-end">
         <Button className="bg-teal-600 hover:bg-teal-700" onClick={openCreateForm} type="button">
           <Plus className="h-4 w-4" />
-          Add New
+          New Pos Device
         </Button>
       </div>
-      {isFormOpen ? (
-        <PosDeviceForm
-          editingDevice={editingDevice}
-          onCancel={() => {
-            setEditingDevice(undefined);
-            setIsFormOpen(false);
-          }}
-        />
-      ) : null}
+      <PosDeviceForm editingDevice={editingDevice} onClose={closeForm} open={isFormOpen} />
+      <RestaurantAccessibilityModal
+        device={accessibilityDevice}
+        onClose={() => setAccessibilityDevice(undefined)}
+      />
       <Panel>
         <FilterBar
           activeFilter={activeFilter}
@@ -626,17 +753,15 @@ function PosDevicesTab() {
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900 dark:text-slate-400">
               <tr>
                 <th className="w-[16%] px-4 py-3">Name</th>
-                <th className="w-[10%] px-4 py-3">Code</th>
-                <th className="w-[16%] px-4 py-3">Location</th>
-                <th className="w-[18%] px-4 py-3">Restaurants</th>
+                <th className="w-[12%] px-4 py-3">Code</th>
+                <th className="w-[14%] px-4 py-3">Location</th>
+                <th className="w-[16%] px-4 py-3">Restaurants</th>
                 <th className="w-[12%] px-4 py-3">Entity</th>
-                <th className="w-[12%] px-4 py-3">Host Name</th>
-                <th className="w-[10%] px-4 py-3">KOT Print</th>
-                <th className="w-[10%] px-4 py-3">Invoice Print</th>
-                <th className="w-[10%] px-4 py-3">Status</th>
-                <th className="w-[14%] px-4 py-3">Created</th>
-                <th className="w-[14%] px-4 py-3">Updated</th>
-                <th className="w-[150px] px-4 py-3">Actions</th>
+                <th className="w-[12%] px-4 py-3">Hostname</th>
+                <th className="w-[8%] px-4 py-3">Status</th>
+                <th className="w-[8%] px-4 py-3">KOT Print</th>
+                <th className="w-[8%] px-4 py-3">Invoice Print</th>
+                <th className="w-[240px] px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-950">
@@ -660,19 +785,52 @@ function PosDevicesTab() {
                       {device.hostName ?? 'Not set'}
                     </td>
                     <td className="px-4 py-4">
-                      <BooleanPill value={device.isKotPrintEnabled} />
+                      <Toggle
+                        checked={device.isActive}
+                        disabled={flagMutation.isPending}
+                        onChange={(checked) =>
+                          flagMutation.mutate({ body: { isActive: checked }, id: device.id })
+                        }
+                      />
                     </td>
                     <td className="px-4 py-4">
-                      <BooleanPill value={device.isInvoicePrintEnabled} />
+                      <Toggle
+                        checked={device.isKotPrintEnabled}
+                        disabled={flagMutation.isPending}
+                        onChange={(checked) =>
+                          flagMutation.mutate({
+                            body: { isKotPrintEnabled: checked },
+                            id: device.id,
+                          })
+                        }
+                      />
                     </td>
                     <td className="px-4 py-4">
-                      <StatusPill isActive={device.isActive} />
+                      <Toggle
+                        checked={device.isInvoicePrintEnabled}
+                        disabled={flagMutation.isPending}
+                        onChange={(checked) =>
+                          flagMutation.mutate({
+                            body: { isInvoicePrintEnabled: checked },
+                            id: device.id,
+                          })
+                        }
+                      />
                     </td>
-                    <td className="px-4 py-4 text-slate-500">{formatDate(device.createdAt)}</td>
-                    <td className="px-4 py-4 text-slate-500">{formatDate(device.updatedAt)}</td>
                     <td className="px-4 py-4">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
+                          className="text-teal-700 hover:text-teal-800"
+                          onClick={() => setAccessibilityDevice(device)}
+                          size="sm"
+                          type="button"
+                          variant="ghost"
+                        >
+                          <Store className="h-4 w-4" />
+                          Restaurant&apos;s Accessibility
+                        </Button>
+                        <Button
+                          aria-label={`Edit ${device.name}`}
                           onClick={() => {
                             setEditingDevice(device);
                             setIsFormOpen(true);
@@ -681,9 +839,10 @@ function PosDevicesTab() {
                           type="button"
                           variant="outline"
                         >
-                          Edit
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
+                          aria-label={`Deactivate ${device.name}`}
                           className="border-red-200 text-red-700 hover:bg-red-50"
                           disabled={deleteMutation.isPending}
                           onClick={() => {
@@ -703,7 +862,7 @@ function PosDevicesTab() {
                 ))
               ) : (
                 <TableState
-                  colSpan={12}
+                  colSpan={10}
                   error={query.error}
                   isError={query.isError}
                   isLoading={query.isLoading}
@@ -714,6 +873,11 @@ function PosDevicesTab() {
           </table>
         </div>
         <PaginationControls
+          limit={meta.limit}
+          onLimitChange={(value) => {
+            setLimit(value);
+            setPage(1);
+          }}
           onPageChange={setPage}
           page={meta.page}
           total={meta.total}
@@ -724,17 +888,22 @@ function PosDevicesTab() {
   );
 }
 
+const paymentMachineFormId = 'payment-machine-form';
+
 function PaymentMachineForm({
   editingMachine,
-  onCancel,
+  onClose,
+  open,
 }: Readonly<{
   editingMachine?: PaymentMachine;
-  onCancel: () => void;
+  onClose: () => void;
+  open: boolean;
 }>) {
   const form = useForm<PaymentMachineFormValues>({
     defaultValues: {
       hospitalId: '',
       isActive: true,
+      isDefault: false,
       name: '',
       pinelabImei: '',
       pinelabMerchantId: '',
@@ -746,6 +915,8 @@ function PaymentMachineForm({
     },
   });
   const selectedHospitalId = form.watch('hospitalId');
+  const isActive = form.watch('isActive');
+  const isDefault = form.watch('isDefault');
   const hospitalsQuery = useHospitalOptions();
   const posDevicesQuery = usePosDeviceOptions(selectedHospitalId);
   const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
@@ -753,10 +924,15 @@ function PaymentMachineForm({
   const { showToast } = useToast();
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
     if (editingMachine) {
       form.reset({
         hospitalId: editingMachine.hospitalId,
         isActive: editingMachine.isActive,
+        isDefault: editingMachine.isDefault,
         name: editingMachine.name,
         pinelabImei: editingMachine.pinelabImei ?? '',
         pinelabMerchantId: editingMachine.pinelabMerchantId ?? '',
@@ -770,6 +946,7 @@ function PaymentMachineForm({
       form.reset({
         hospitalId: scopedHospitalId ?? '',
         isActive: true,
+        isDefault: false,
         name: '',
         pinelabImei: '',
         pinelabMerchantId: '',
@@ -780,7 +957,7 @@ function PaymentMachineForm({
         serialNumber: '',
       });
     }
-  }, [editingMachine, form, scopedHospitalId]);
+  }, [editingMachine, form, open, scopedHospitalId]);
 
   const mutation = useMutation({
     mutationFn: (body: PaymentMachineInput) =>
@@ -802,7 +979,7 @@ function PaymentMachineForm({
         title: editingMachine ? 'Payment machine updated' : 'Payment machine created',
         variant: 'success',
       });
-      onCancel();
+      onClose();
     },
   });
 
@@ -817,6 +994,7 @@ function PaymentMachineForm({
     const body: PaymentMachineInput = {
       hospitalId: parsed.data.hospitalId,
       isActive: parsed.data.isActive,
+      isDefault: parsed.data.isDefault,
       name: parsed.data.name,
       pinelabImei: optionalValue(parsed.data.pinelabImei),
       pinelabMerchantId: optionalValue(parsed.data.pinelabMerchantId),
@@ -831,139 +1009,163 @@ function PaymentMachineForm({
   });
 
   return (
-    <Panel className="p-5">
+    <Modal
+      footer={
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button onClick={onClose} type="button" variant="outline">
+            Cancel
+          </Button>
+          <Button
+            className="bg-teal-600 hover:bg-teal-700"
+            disabled={mutation.isPending}
+            form={paymentMachineFormId}
+            type="submit"
+          >
+            {mutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            Submit
+          </Button>
+        </div>
+      }
+      onClose={onClose}
+      open={open}
+      title={editingMachine ? 'Edit Payment Machine' : 'New Payment Machine'}
+    >
       <form
-        className="grid gap-5"
+        className="grid gap-4"
+        id={paymentMachineFormId}
         onSubmit={(event) => {
           void handleSubmit(event);
         }}
       >
-        <div>
-          <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-            {editingMachine ? 'Edit Payment Machine' : 'Create New Payment Machine'}
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Configure device metadata only. No Pine Labs calls or payment transactions are made.
-          </p>
-        </div>
-        <div className="grid gap-5 md:grid-cols-2">
-          <Field
-            error={form.formState.errors.hospitalId?.message}
-            label="Location"
-            name="payment-location"
+        <Field
+          error={form.formState.errors.hospitalId?.message}
+          label="Location"
+          name="payment-location"
+        >
+          <Select
+            disabled={hospitalsQuery.isLoading || isLocationSelectorLocked}
+            id="payment-location"
+            {...form.register('hospitalId')}
           >
-            <Select
-              disabled={hospitalsQuery.isLoading || isLocationSelectorLocked}
-              id="payment-location"
-              {...form.register('hospitalId')}
-            >
-              <option value="">Select location</option>
-              {hospitalsQuery.data?.map((hospital) => (
-                <option key={hospital.id} value={hospital.id}>
-                  {formatLocationOption(hospital)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field
-            error={form.formState.errors.posDeviceId?.message}
-            label="POS Device"
-            name="payment-pos-device"
+            <option value="">Select location</option>
+            {hospitalsQuery.data?.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {formatLocationOption(hospital)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          error={form.formState.errors.posDeviceId?.message}
+          label="POS Device"
+          name="payment-pos-device"
+        >
+          <Select
+            disabled={!selectedHospitalId || posDevicesQuery.isLoading}
+            id="payment-pos-device"
+            {...form.register('posDeviceId')}
           >
-            <Select
-              disabled={!selectedHospitalId || posDevicesQuery.isLoading}
-              id="payment-pos-device"
-              {...form.register('posDeviceId')}
-            >
-              <option value="">Select POS device</option>
-              {posDevicesQuery.data?.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name} ({device.code})
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field error={form.formState.errors.name?.message} label="Name" name="payment-name">
-            <Input id="payment-name" {...form.register('name')} />
-          </Field>
-          <Field
-            error={form.formState.errors.serialNumber?.message}
-            label="Serial Number"
-            name="payment-serial"
-          >
-            <Input id="payment-serial" placeholder="Optional" {...form.register('serialNumber')} />
-          </Field>
-          <Field
-            error={form.formState.errors.pinelabMerchantId?.message}
-            label="Pine Labs Merchant ID"
-            name="payment-merchant"
-          >
-            <Input
-              id="payment-merchant"
-              placeholder="Optional"
-              {...form.register('pinelabMerchantId')}
-            />
-          </Field>
-          <Field
-            error={form.formState.errors.pinelabSecurityToken?.message}
-            label="Pine Labs Security Token"
-            name="payment-token"
-          >
-            <Input
-              id="payment-token"
-              placeholder={editingMachine ? 'Leave blank to keep existing token' : 'Optional'}
-              type="password"
-              {...form.register('pinelabSecurityToken')}
-            />
-          </Field>
-          <Field
-            error={form.formState.errors.pinelabImei?.message}
-            label="Pine Labs IMEI"
-            name="payment-imei"
-          >
-            <Input id="payment-imei" placeholder="Optional" {...form.register('pinelabImei')} />
-          </Field>
-          <Field
-            error={form.formState.errors.pinelabMerchantStorePosCode?.message}
-            label="Pine Labs Merchant Store POS Code"
-            name="payment-store-pos-code"
-          >
-            <Input
-              id="payment-store-pos-code"
-              placeholder="Optional"
-              {...form.register('pinelabMerchantStorePosCode')}
-            />
-          </Field>
-          <Field
-            error={form.formState.errors.primaryUpi?.message}
-            label="Primary UPI"
-            name="payment-primary-upi"
-          >
-            <Select id="payment-primary-upi" {...form.register('primaryUpi')}>
-              <option value="">Select provider</option>
-              {primaryUpiValues.map((provider) => (
-                <option key={provider} value={provider}>
-                  {formatUpiProvider(provider)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <label className="flex min-h-10 items-center gap-3 rounded-md border bg-white px-3 text-sm font-medium text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
-          <input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />
-          Active
-        </label>
+            <option value="">Select POS device</option>
+            {posDevicesQuery.data?.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.name} ({device.code})
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <ToggleField
+          label="Status"
+          onChange={(checked) => form.setValue('isActive', checked)}
+          value={isActive}
+        />
+        <Field error={form.formState.errors.name?.message} label="Name" name="payment-name">
+          <Input id="payment-name" {...form.register('name')} />
+        </Field>
+        <Field
+          error={form.formState.errors.serialNumber?.message}
+          label="Serial Number"
+          name="payment-serial"
+        >
+          <Input
+            id="payment-serial"
+            inputMode="numeric"
+            placeholder="Optional"
+            {...form.register('serialNumber')}
+          />
+        </Field>
+        <Field
+          error={form.formState.errors.pinelabMerchantId?.message}
+          label="Pinelab Merchant Id"
+          name="payment-merchant"
+        >
+          <Input
+            id="payment-merchant"
+            inputMode="numeric"
+            placeholder="Optional"
+            {...form.register('pinelabMerchantId')}
+          />
+        </Field>
+        <Field
+          error={form.formState.errors.pinelabSecurityToken?.message}
+          label="Pinelab Security Token"
+          name="payment-token"
+        >
+          <Input
+            id="payment-token"
+            placeholder={editingMachine ? 'Leave blank to keep existing token' : 'Optional'}
+            type="password"
+            {...form.register('pinelabSecurityToken')}
+          />
+        </Field>
+        <Field
+          error={form.formState.errors.pinelabImei?.message}
+          label="Pinelab IMEI"
+          name="payment-imei"
+        >
+          <Input id="payment-imei" placeholder="Optional" {...form.register('pinelabImei')} />
+        </Field>
+        <Field
+          error={form.formState.errors.pinelabMerchantStorePosCode?.message}
+          label="Pinelab Merchant Store POS Code"
+          name="payment-store-pos-code"
+        >
+          <Input
+            id="payment-store-pos-code"
+            inputMode="numeric"
+            placeholder="Optional"
+            {...form.register('pinelabMerchantStorePosCode')}
+          />
+        </Field>
+        <Field
+          error={form.formState.errors.primaryUpi?.message}
+          label="Primary UPI"
+          name="payment-primary-upi"
+        >
+          <Select id="payment-primary-upi" {...form.register('primaryUpi')}>
+            <option value="">Select provider</option>
+            {primaryUpiValues.map((provider) => (
+              <option key={provider} value={provider}>
+                {formatUpiProvider(provider)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <ToggleField
+          description="Only one machine per POS device can be the default. Turning this on clears the current default."
+          label="Default"
+          onChange={(checked) => form.setValue('isDefault', checked)}
+          value={isDefault}
+        />
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
           Pine Labs security token is masked after save. Production should move this value to Key
           Vault or encrypted storage.
         </div>
-        <FormActions
-          isEditing={Boolean(editingMachine)}
-          isPending={mutation.isPending}
-          onCancel={onCancel}
-        />
       </form>
-    </Panel>
+    </Modal>
   );
 }
 
@@ -972,6 +1174,7 @@ function PaymentMachinesTab() {
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
   const [editingMachine, setEditingMachine] = useState<PaymentMachine | undefined>();
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [limit, setLimit] = useState(defaultPageLimit);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const queryClient = useQueryClient();
@@ -982,17 +1185,17 @@ function PaymentMachinesTab() {
         await organizationApi.listPaymentMachines({
           hospitalId: scopedHospitalId,
           isActive: activeFilterToBoolean(activeFilter),
-          limit: pageLimit,
+          limit,
           page,
           search,
           sortBy: 'createdAt',
           sortOrder: 'desc',
         })
       ).data,
-    queryKey: ['payment-machines', { activeFilter, page, scopedHospitalId, search }],
+    queryKey: ['payment-machines', { activeFilter, limit, page, scopedHospitalId, search }],
   });
   const items = query.data?.items ?? [];
-  const meta = query.data?.meta ?? { limit: pageLimit, page, total: 0, totalPages: 1 };
+  const meta = query.data?.meta ?? { limit, page, total: 0, totalPages: 1 };
   const deleteMutation = useMutation({
     mutationFn: (id: string) => organizationApi.deletePaymentMachine(id),
     onError(error) {
@@ -1007,10 +1210,31 @@ function PaymentMachinesTab() {
       showToast({ title: 'Payment machine deactivated', variant: 'success' });
     },
   });
+  // Status and Primary toggle straight from the grid; the service demotes the previous default.
+  const flagMutation = useMutation({
+    mutationFn: ({ body, id }: { body: Partial<PaymentMachineInput>; id: string }) =>
+      organizationApi.updatePaymentMachine(id, body),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Payment machine was not updated',
+        variant: 'error',
+      });
+      void query.refetch();
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['payment-machines'] });
+    },
+  });
 
   const openCreateForm = () => {
     setEditingMachine(undefined);
     setIsFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setEditingMachine(undefined);
+    setIsFormOpen(false);
   };
 
   return (
@@ -1018,18 +1242,10 @@ function PaymentMachinesTab() {
       <div className="flex justify-end">
         <Button className="bg-teal-600 hover:bg-teal-700" onClick={openCreateForm} type="button">
           <Plus className="h-4 w-4" />
-          Add New
+          New Payment Machine
         </Button>
       </div>
-      {isFormOpen ? (
-        <PaymentMachineForm
-          editingMachine={editingMachine}
-          onCancel={() => {
-            setEditingMachine(undefined);
-            setIsFormOpen(false);
-          }}
-        />
-      ) : null}
+      <PaymentMachineForm editingMachine={editingMachine} onClose={closeForm} open={isFormOpen} />
       <Panel>
         <FilterBar
           activeFilter={activeFilter}
@@ -1048,17 +1264,15 @@ function PaymentMachinesTab() {
           <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm dark:divide-slate-800">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500 dark:bg-slate-900 dark:text-slate-400">
               <tr>
-                <th className="w-[16%] px-4 py-3">Name</th>
-                <th className="w-[16%] px-4 py-3">Location</th>
-                <th className="w-[16%] px-4 py-3">POS Device</th>
-                <th className="w-[14%] px-4 py-3">Serial Number</th>
-                <th className="w-[14%] px-4 py-3">Merchant ID</th>
-                <th className="w-[14%] px-4 py-3">IMEI</th>
-                <th className="w-[12%] px-4 py-3">Primary UPI</th>
-                <th className="w-[10%] px-4 py-3">Status</th>
-                <th className="w-[14%] px-4 py-3">Created</th>
-                <th className="w-[14%] px-4 py-3">Updated</th>
-                <th className="w-[150px] px-4 py-3">Actions</th>
+                <th className="w-[15%] px-4 py-3">Name</th>
+                <th className="w-[8%] px-4 py-3">Active</th>
+                <th className="w-[8%] px-4 py-3">Primary</th>
+                <th className="w-[13%] px-4 py-3">Serial Number</th>
+                <th className="w-[11%] px-4 py-3">Merchant ID</th>
+                <th className="w-[13%] px-4 py-3">Store POS Code</th>
+                <th className="w-[15%] px-4 py-3">POS Device</th>
+                <th className="w-[11%] px-4 py-3">Primary UPI</th>
+                <th className="w-[120px] px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white dark:divide-slate-800 dark:bg-slate-950">
@@ -1068,11 +1282,23 @@ function PaymentMachinesTab() {
                     <td className="px-4 py-4 font-medium text-slate-950 dark:text-white">
                       {machine.name}
                     </td>
-                    <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                      {machine.hospital.hospitalName}
+                    <td className="px-4 py-4">
+                      <Toggle
+                        checked={machine.isActive}
+                        disabled={flagMutation.isPending}
+                        onChange={(checked) =>
+                          flagMutation.mutate({ body: { isActive: checked }, id: machine.id })
+                        }
+                      />
                     </td>
-                    <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                      {machine.posDevice.name} ({machine.posDevice.code})
+                    <td className="px-4 py-4">
+                      <Toggle
+                        checked={machine.isDefault}
+                        disabled={flagMutation.isPending}
+                        onChange={(checked) =>
+                          flagMutation.mutate({ body: { isDefault: checked }, id: machine.id })
+                        }
+                      />
                     </td>
                     <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
                       {machine.serialNumber ?? 'Not set'}
@@ -1081,19 +1307,18 @@ function PaymentMachinesTab() {
                       {machine.pinelabMerchantId ?? 'Not set'}
                     </td>
                     <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
-                      {machine.pinelabImei ?? 'Not set'}
+                      {machine.pinelabMerchantStorePosCode ?? 'Not set'}
+                    </td>
+                    <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
+                      {machine.posDevice.name} ({machine.posDevice.code})
                     </td>
                     <td className="px-4 py-4 text-slate-600 dark:text-slate-300">
                       {formatUpiProvider(machine.primaryUpi)}
                     </td>
                     <td className="px-4 py-4">
-                      <StatusPill isActive={machine.isActive} />
-                    </td>
-                    <td className="px-4 py-4 text-slate-500">{formatDate(machine.createdAt)}</td>
-                    <td className="px-4 py-4 text-slate-500">{formatDate(machine.updatedAt)}</td>
-                    <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
                         <Button
+                          aria-label={`Edit ${machine.name}`}
                           onClick={() => {
                             setEditingMachine(machine);
                             setIsFormOpen(true);
@@ -1102,9 +1327,10 @@ function PaymentMachinesTab() {
                           type="button"
                           variant="outline"
                         >
-                          Edit
+                          <Pencil className="h-4 w-4" />
                         </Button>
                         <Button
+                          aria-label={`Deactivate ${machine.name}`}
                           className="border-red-200 text-red-700 hover:bg-red-50"
                           disabled={deleteMutation.isPending}
                           onClick={() => {
@@ -1124,7 +1350,7 @@ function PaymentMachinesTab() {
                 ))
               ) : (
                 <TableState
-                  colSpan={11}
+                  colSpan={9}
                   error={query.error}
                   isError={query.isError}
                   isLoading={query.isLoading}
@@ -1135,6 +1361,11 @@ function PaymentMachinesTab() {
           </table>
         </div>
         <PaginationControls
+          limit={meta.limit}
+          onLimitChange={(value) => {
+            setLimit(value);
+            setPage(1);
+          }}
           onPageChange={setPage}
           page={meta.page}
           total={meta.total}

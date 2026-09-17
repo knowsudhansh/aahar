@@ -444,7 +444,14 @@ export interface CounterListQuery extends ListQuery {
   restaurantId?: string;
 }
 
-export type PrimaryUpiProvider = 'BHARATPE' | 'GOOGLE_PAY' | 'OTHER' | 'PHONEPE';
+export type PrimaryUpiProvider =
+  | 'BHARATPE'
+  | 'GOOGLE_PAY'
+  | 'OTHER'
+  | 'PHONEPE'
+  | 'UPI_BHARAT_QR'
+  | 'UPI_PAYTM'
+  | 'UPI_SALE';
 
 export interface PosDeviceRestaurantSummary {
   id: string;
@@ -485,6 +492,7 @@ export interface PosDeviceInput {
 
 export interface PosDeviceListQuery extends ListQuery {
   hospitalId?: string;
+  hostName?: string;
   restaurantId?: string;
 }
 
@@ -496,6 +504,7 @@ export interface PaymentMachine {
   hospitalId: string;
   id: string;
   isActive: boolean;
+  isDefault: boolean;
   name: string;
   pinelabImei: string | null;
   pinelabMerchantId: string | null;
@@ -511,6 +520,7 @@ export interface PaymentMachine {
 export interface PaymentMachineInput {
   hospitalId: string;
   isActive?: boolean;
+  isDefault?: boolean;
   name: string;
   pinelabImei?: string;
   pinelabMerchantId?: string;
@@ -523,6 +533,7 @@ export interface PaymentMachineInput {
 
 export interface PaymentMachineListQuery extends ListQuery {
   hospitalId?: string;
+  isDefault?: boolean;
   posDeviceId?: string;
   primaryUpi?: PrimaryUpiProvider;
 }

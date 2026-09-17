@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { getPageMeta, getPagination } from '../common/pagination';
@@ -38,6 +43,7 @@ function toPaymentMachineResponse(paymentMachine: PaymentMachineWithRelations) {
     hospitalId: paymentMachine.hospitalId,
     id: paymentMachine.id,
     isActive: paymentMachine.isActive,
+    isDefault: paymentMachine.isDefault,
     name: paymentMachine.name,
     pinelabImei: paymentMachine.pinelabImei,
     pinelabMerchantId: paymentMachine.pinelabMerchantId,
@@ -85,6 +91,7 @@ export class PaymentMachinesService {
       },
       ...(query.hospitalId ? { hospitalId: query.hospitalId } : {}),
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+      ...(query.isDefault !== undefined ? { isDefault: query.isDefault } : {}),
       ...(query.posDeviceId ? { posDeviceId: query.posDeviceId } : {}),
       ...(query.primaryUpi ? { primaryUpi: query.primaryUpi } : {}),
       ...(query.search
@@ -128,11 +135,18 @@ export class PaymentMachinesService {
         await this.assertActiveHospital(dto.hospitalId, tx);
         await this.assertActivePosDevice(dto.posDeviceId, dto.hospitalId, tx);
 
+        const isDefault = dto.isDefault ?? false;
+
+        if (isDefault) {
+          await this.releaseCurrentDefault(dto.posDeviceId, undefined, context, tx);
+        }
+
         const paymentMachine = await this.paymentMachines.create(
           {
             createdBy: context.actorId,
             hospitalId: dto.hospitalId,
             isActive: dto.isActive ?? true,
+            isDefault,
             name: dto.name,
             pinelabImei: dto.pinelabImei,
             pinelabMerchantId: dto.pinelabMerchantId,
@@ -192,6 +206,17 @@ export class PaymentMachinesService {
 
         if (dto.isActive !== undefined) {
           data.isActive = dto.isActive;
+        }
+
+        if (dto.isDefault !== undefined) {
+          if (dto.isDefault) {
+            await this.releaseCurrentDefault(posDeviceId, id, context, tx);
+          }
+
+          data.isDefault = dto.isDefault;
+        } else if (dto.posDeviceId !== undefined && existing.isDefault) {
+          // Moving a default machine to another POS device must not leave two defaults behind.
+          await this.releaseCurrentDefault(posDeviceId, id, context, tx);
         }
 
         if (dto.name !== undefined) {
@@ -273,6 +298,7 @@ export class PaymentMachinesService {
         {
           deletedAt: new Date(),
           isActive: false,
+          isDefault: false,
           updatedBy: context.actorId,
         },
         tx,
@@ -311,6 +337,49 @@ export class PaymentMachinesService {
 
     if (!posDevice) {
       throw new BadRequestException('POS device not found for selected location');
+    }
+  }
+
+  /**
+   * BA rule (Menu 2 validations): only one live payment machine per POS device can be the default.
+   * Setting a new default demotes the previous one inside the same transaction so the grid toggle
+   * behaves like a radio choice rather than failing the save.
+   */
+  private async releaseCurrentDefault(
+    posDeviceId: string,
+    excludeId: string | undefined,
+    context: ActorContext,
+    client: PaymentMachineClient,
+  ): Promise<void> {
+    const currentDefaults = await this.paymentMachines.findDefaultsForPosDevice(
+      posDeviceId,
+      excludeId,
+      client,
+    );
+
+    for (const currentDefault of currentDefaults) {
+      const demoted = await this.paymentMachines.update(
+        currentDefault.id,
+        {
+          isDefault: false,
+          updatedBy: context.actorId,
+        },
+        client,
+      );
+
+      await this.auditLog.record(
+        {
+          action: 'PAYMENT_MACHINE_DEFAULT_CHANGE',
+          actorId: context.actorId,
+          entityId: currentDefault.id,
+          entityName: 'payment_machines',
+          hospitalId: currentDefault.hospitalId,
+          ipAddress: context.ipAddress,
+          newValue: toPaymentMachineResponse(demoted),
+          oldValue: toPaymentMachineResponse(currentDefault),
+        },
+        client,
+      );
     }
   }
 

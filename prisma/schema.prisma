@@ -67,6 +67,9 @@ enum TransferAcknowledgementStatus {
 
 enum PrimaryUpiProvider {
   PHONEPE
+  UPI_PAYTM
+  UPI_SALE
+  UPI_BHARAT_QR
   BHARATPE
   GOOGLE_PAY
   OTHER
@@ -480,6 +483,7 @@ model PosDevice {
   @@index([hospitalId])
   @@index([deletedAt])
   @@index([isActive])
+  @@index([hostName])
   @@map("pos_devices")
 }
 
@@ -516,6 +520,7 @@ model PaymentMachine {
   pinelabImei                 String?             @map("pinelab_imei")
   pinelabMerchantStorePosCode String?             @map("pinelab_merchant_store_pos_code")
   primaryUpi                  PrimaryUpiProvider? @map("primary_upi")
+  isDefault                   Boolean             @default(false) @map("is_default")
   isActive                    Boolean             @default(true) @map("is_active")
   createdAt                   DateTime            @default(now()) @map("created_at")
   createdBy                   String?             @map("created_by") @db.Uuid
@@ -530,6 +535,7 @@ model PaymentMachine {
   @@index([posDeviceId])
   @@index([deletedAt])
   @@index([isActive])
+  @@index([isDefault])
   @@map("payment_machines")
 }
 

@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsUUID } from 'class-validator';
+import { IsIn, IsOptional, IsString, IsUUID } from 'class-validator';
 import { ActivePaginationQueryDto } from '../../common/dto/active-pagination-query.dto';
 
 export const posDeviceSortFields = [
@@ -23,6 +23,14 @@ export class ListPosDevicesQueryDto extends ActivePaginationQueryDto {
   @IsOptional()
   @IsUUID()
   restaurantId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Exact host name lookup used by the duplicate host name check.',
+    example: 'blkcomp0977',
+  })
+  @IsOptional()
+  @IsString()
+  hostName?: string;
 
   @ApiPropertyOptional({ enum: posDeviceSortFields })
   @IsIn(posDeviceSortFields)

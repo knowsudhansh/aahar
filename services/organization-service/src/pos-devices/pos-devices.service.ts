@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { getPageMeta, getPagination } from '../common/pagination';
@@ -44,7 +49,19 @@ function toPosDeviceResponse(posDevice: PosDeviceWithRelations) {
   };
 }
 
-function getPosDeviceOrderBy(query: ListPosDevicesQueryDto): Prisma.PosDeviceOrderByWithRelationInput {
+function describeHostNameOwner(posDevice: PosDeviceWithRelations): string {
+  const restaurantNames = posDevice.restaurants.map((mapping) => mapping.restaurant.restaurantName);
+
+  if (restaurantNames.length > 0) {
+    return `${restaurantNames.join(', ')} (POS device ${posDevice.name})`;
+  }
+
+  return `POS device ${posDevice.name}`;
+}
+
+function getPosDeviceOrderBy(
+  query: ListPosDevicesQueryDto,
+): Prisma.PosDeviceOrderByWithRelationInput {
   const sortBy: PosDeviceSortField = query.sortBy ?? 'createdAt';
 
   return {
@@ -67,6 +84,9 @@ export class PosDevicesService {
         deletedAt: null,
       },
       ...(query.hospitalId ? { hospitalId: query.hospitalId } : {}),
+      ...(query.hostName
+        ? { hostName: { equals: query.hostName, mode: 'insensitive' as const } }
+        : {}),
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(query.restaurantId
         ? {
@@ -129,6 +149,7 @@ export class PosDevicesService {
         await this.assertActiveHospital(dto.hospitalId, tx);
         await this.assertRestaurantsBelongToHospital(restaurantIds, dto.hospitalId, tx);
         await this.assertUniqueCode(dto.hospitalId, dto.code, undefined, tx);
+        await this.assertUniqueHostName(dto.hostName, undefined, tx);
 
         const posDevice = await this.posDevices.create(
           {
@@ -181,10 +202,12 @@ export class PosDevicesService {
         const data: Prisma.PosDeviceUpdateInput = {};
         const hospitalId = dto.hospitalId ?? existing.hospitalId;
         const code = dto.code ?? existing.code;
-        const shouldSyncRestaurants =
-          dto.restaurantIds !== undefined || dto.hospitalId !== undefined;
-        const restaurantIds =
-          dto.restaurantIds !== undefined ? uniqueIds(dto.restaurantIds) : [];
+        // Restaurant mappings are maintained from their own screen, so only touch them when the
+        // caller sends a list, or when a location change invalidates the current mappings.
+        const isHospitalChanging =
+          dto.hospitalId !== undefined && dto.hospitalId !== existing.hospitalId;
+        const shouldSyncRestaurants = dto.restaurantIds !== undefined || isHospitalChanging;
+        const restaurantIds = dto.restaurantIds !== undefined ? uniqueIds(dto.restaurantIds) : [];
 
         if (dto.hospitalId !== undefined) {
           await this.assertActiveHospital(dto.hospitalId, tx);
@@ -197,6 +220,10 @@ export class PosDevicesService {
 
         if (dto.code !== undefined || dto.hospitalId !== undefined) {
           await this.assertUniqueCode(hospitalId, code, id, tx);
+        }
+
+        if (dto.hostName !== undefined) {
+          await this.assertUniqueHostName(dto.hostName, id, tx);
         }
 
         if (shouldSyncRestaurants) {
@@ -328,7 +355,11 @@ export class PosDevicesService {
       return;
     }
 
-    const restaurants = await this.posDevices.findActiveRestaurants(restaurantIds, hospitalId, client);
+    const restaurants = await this.posDevices.findActiveRestaurants(
+      restaurantIds,
+      hospitalId,
+      client,
+    );
 
     if (restaurants.length !== restaurantIds.length) {
       throw new BadRequestException('One or more restaurants do not belong to selected location');
@@ -351,6 +382,28 @@ export class PosDevicesService {
     if (posDevice) {
       throw new ConflictException('POS device code already exists for this location');
     }
+  }
+
+  private async assertUniqueHostName(
+    hostName: string | undefined,
+    excludeId: string | undefined,
+    client: PosDeviceClient,
+  ): Promise<void> {
+    const normalizedHostName = hostName?.trim();
+
+    if (!normalizedHostName) {
+      return;
+    }
+
+    const posDevice = await this.posDevices.findByHostName(normalizedHostName, excludeId, client);
+
+    if (!posDevice) {
+      return;
+    }
+
+    throw new ConflictException(
+      `Host name ${normalizedHostName} is already tagged to ${describeHostNameOwner(posDevice)}`,
+    );
   }
 
   private async findActivePosDevice(

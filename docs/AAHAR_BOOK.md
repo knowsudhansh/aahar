@@ -67,7 +67,7 @@ Transfer UI FEFO Item-First Selection: Completed
 ### Pending / Next Major Phases
 
 ```text
-Phase 4.6D - POS Device Master and Payment Machine Master: Pending
+Phase 4.6D - POS Device Master and Payment Machine Master: Delivered
 Phase 4.6E - UI Foundation and Dashboard Upgrade: Pending
 Phase 5A - Restaurant Operations / Menu Availability: Pending
 Phase 5B - POS Billing: Pending
@@ -271,8 +271,8 @@ Location (internal Hospital)
 |-- Store/F&B
 |-- Kitchen
 |-- Restaurant
-|-- POS Devices (pending)
-|-- Payment Machines (pending)
+|-- POS Devices
+|-- Payment Machines
 ```
 
 When a new Location is created:
@@ -792,11 +792,11 @@ Rejected quantity returns to Kitchen
 
 ## 10. Pending High-Priority Modules
 
-### 10.1 Phase 4.6D - POS Device Master and Payment Machine Master
+### 10.1 Phase 4.6D - POS Device Master and Payment Machine Master (Delivered)
 
 Business requested Counter to be renamed to POS/POS Devices.
 
-Planned structure:
+Structure:
 
 ```text
 POS
@@ -826,7 +826,7 @@ One POS device can map to multiple restaurants
 One restaurant can use multiple POS devices
 ```
 
-Recommended table:
+Tables:
 
 ```text
 pos_devices
@@ -845,7 +845,8 @@ Pine Labs Merchant ID
 Pine Labs Security Token
 Pine Labs IMEI
 Pine Labs Merchant Store POS Code
-Primary UPI: PHONEPE, BHARATPE, GOOGLE_PAY, OTHER
+Primary UPI: PHONEPE, UPI_PAYTM, UPI_SALE, UPI_BHARAT_QR (BHARATPE, GOOGLE_PAY, OTHER retained)
+Default toggle (one live default per POS device)
 ```
 
 Security:
@@ -855,6 +856,39 @@ Pine Labs Security Token is sensitive
 Do not log token
 Mask token in UI
 In production move to Key Vault or encrypted field
+```
+
+BA validations implemented:
+
+```text
+Host name must be unique across live POS devices
+  Duplicate save is rejected naming the restaurants already tagged to that host name
+POS device name/code/host name accept alphanumerics plus space . - _
+Serial number, Pinelab merchant id and store POS code are digits only
+Pinelab IMEI is alphanumeric
+Only one live payment machine per POS device can hold the Default flag
+  Turning Default on demotes the previous holder in the same transaction and audits both rows
+  A partial unique index backs the rule at the database level
+Restaurant mappings are only rewritten when the caller sends a list,
+  or when a location change invalidates them
+```
+
+Screen behaviour:
+
+```text
+Create and edit open as pop-ups over the grid
+Status, KOT Print, Invoice Print, Active and Default render as toggle buttons
+  and write through directly from the grid
+Restaurant's Accessibility is a per-row action opening a multi-select pop-up
+Grid pages at 20 records by default with a 10/20/25/50 page-size selector
+Search covers every column shown in the grid
+```
+
+Notes:
+
+```text
+Interactive primitives (Modal, Toggle) live in components/ui-controls.tsx marked 'use client'
+  so server-rendered pages keep importing components/ui.tsx without entering the client bundle
 ```
 
 ### 10.2 Phase 4.6E - UI Foundation and Dashboard Upgrade
@@ -1498,22 +1532,16 @@ Do not modify Prisma schema unless required.
 Do not break completed modules.
 Follow regression checklist before commit.
 AAHAR uses Location as business UI term but hospitalId internally.
-Current next pending phase is Phase 4.6D POS Device Master + Payment Machine Master unless BA provides new changes.
+Phase 4.6D POS Device Master + Payment Machine Master is delivered.
+Current next pending phase is Phase 4.6E UI Foundation and Dashboard Upgrade unless BA provides new changes.
 ```
 
 ---
 
 ## 18. Immediate Next Recommended Work
 
-The next planned phase is:
-
-```text
-Phase 4.6D - POS Device Master + Payment Machine Master
-```
-
-Do this before Restaurant Operations and POS Billing.
-
-Reasons:
+Phase 4.6D POS Device Master + Payment Machine Master is delivered, so POS Billing and
+Restaurant Operations now have the master data they depend on:
 
 ```text
 POS Billing needs POS Device
@@ -1522,7 +1550,7 @@ Restaurant operations need clear POS setup
 Pine Labs needs terminal/master data
 ```
 
-After that:
+The next planned phases are:
 
 ```text
 Phase 4.6E - UI Foundation and Dashboard Upgrade
@@ -1543,6 +1571,10 @@ Location create/edit/status toggle
 Store create/status toggle
 Kitchen create/status toggle
 Restaurant create/edit/list
+POS Device create/edit/status-KOT-Invoice toggles
+POS Device Restaurant's Accessibility mapping
+POS Device duplicate host name rejection
+Payment Machine create/edit/Default toggle handover
 Item Category create/toggle
 Item create/toggle
 Employee create

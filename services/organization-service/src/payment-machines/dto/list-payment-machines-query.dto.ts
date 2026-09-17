@@ -1,11 +1,16 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PrimaryUpiProvider } from '@prisma/client';
-import { IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
-import { ActivePaginationQueryDto } from '../../common/dto/active-pagination-query.dto';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
+import {
+  ActivePaginationQueryDto,
+  toOptionalBoolean,
+} from '../../common/dto/active-pagination-query.dto';
 
 export const paymentMachineSortFields = [
   'createdAt',
   'isActive',
+  'isDefault',
   'name',
   'primaryUpi',
   'serialNumber',
@@ -29,6 +34,12 @@ export class ListPaymentMachinesQueryDto extends ActivePaginationQueryDto {
   @IsEnum(PrimaryUpiProvider)
   @IsOptional()
   primaryUpi?: PrimaryUpiProvider;
+
+  @ApiPropertyOptional({ type: Boolean })
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => toOptionalBoolean(value))
+  isDefault?: boolean;
 
   @ApiPropertyOptional({ enum: paymentMachineSortFields })
   @IsIn(paymentMachineSortFields)

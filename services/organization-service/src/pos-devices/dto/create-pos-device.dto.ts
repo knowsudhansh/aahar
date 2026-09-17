@@ -6,8 +6,16 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
 } from 'class-validator';
+
+// BA spec: name, code and host name are alphanumeric. Spaces and the separators already used by
+// live device codes (6th_Floor_Counter, MAX-LKO-POS-01) are allowed alongside letters and digits.
+const alphanumericPattern = /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
+// Optional fields also accept an empty string so a saved value can be cleared.
+const optionalAlphanumericPattern = /^$|^[A-Za-z0-9][A-Za-z0-9 ._-]*$/;
+const alphanumericMessage = 'Use letters, numbers, spaces, dots, hyphens or underscores only.';
 
 export class CreatePosDeviceDto {
   @ApiProperty({ example: 'd2d2f99b-0d2d-4c94-8c8a-21d4f90c4f80' })
@@ -16,11 +24,13 @@ export class CreatePosDeviceDto {
 
   @ApiProperty({ example: 'Main Cafeteria POS' })
   @IsString()
+  @Matches(alphanumericPattern, { message: alphanumericMessage })
   @MaxLength(150)
   name!: string;
 
   @ApiProperty({ example: 'POS001' })
   @IsString()
+  @Matches(alphanumericPattern, { message: alphanumericMessage })
   @MaxLength(50)
   code!: string;
 
@@ -33,6 +43,7 @@ export class CreatePosDeviceDto {
   @ApiPropertyOptional({ example: 'MAX-LKO-POS-01' })
   @IsOptional()
   @IsString()
+  @Matches(optionalAlphanumericPattern, { message: alphanumericMessage })
   @MaxLength(150)
   hostName?: string;
 

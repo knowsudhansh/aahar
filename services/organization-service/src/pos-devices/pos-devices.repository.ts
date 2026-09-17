@@ -85,6 +85,24 @@ export class PosDevicesRepository {
     });
   }
 
+  async findByHostName(
+    hostName: string,
+    excludeId?: string,
+    client: PosDeviceClient = this.prisma,
+  ): Promise<PosDeviceWithRelations | null> {
+    return client.posDevice.findFirst({
+      include: posDeviceInclude,
+      where: {
+        deletedAt: null,
+        hostName: {
+          equals: hostName,
+          mode: 'insensitive',
+        },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+  }
+
   async findByCodeWithinHospital(
     hospitalId: string,
     code: string,
@@ -131,6 +149,7 @@ export class PosDevicesRepository {
       data: {
         deletedAt: data.deletedAt,
         isActive: false,
+        isDefault: false,
         updatedBy: data.updatedBy,
       },
       where: {

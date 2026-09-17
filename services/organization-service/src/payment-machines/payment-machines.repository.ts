@@ -78,9 +78,23 @@ export class PaymentMachinesRepository {
     });
   }
 
-  async findMany(
-    args: Prisma.PaymentMachineFindManyArgs,
+  async findDefaultsForPosDevice(
+    posDeviceId: string,
+    excludeId: string | undefined,
+    client: PaymentMachineClient,
   ): Promise<PaymentMachineWithRelations[]> {
+    return client.paymentMachine.findMany({
+      include: paymentMachineInclude,
+      where: {
+        deletedAt: null,
+        isDefault: true,
+        posDeviceId,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+  }
+
+  async findMany(args: Prisma.PaymentMachineFindManyArgs): Promise<PaymentMachineWithRelations[]> {
     return this.prisma.paymentMachine.findMany({
       ...args,
       include: paymentMachineInclude,
