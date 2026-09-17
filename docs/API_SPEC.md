@@ -256,6 +256,11 @@ GET /permissions
 
 Hospital is the top-level entity.
 
+> BA terminology note: Business-facing Admin Portal screens now call this master
+> **Location**. The API route remains `/hospitals`, and payloads may use the new
+> Location-friendly aliases such as `title`, `locationCode`, `displayName`, and
+> `invoicePrefix` while preserving `hospitalId` relationships.
+
 ---
 
 ## 4.1 Hospitals

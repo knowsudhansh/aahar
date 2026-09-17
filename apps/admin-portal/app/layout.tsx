@@ -4,13 +4,19 @@ import { Providers } from './providers';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'AAHAR Admin Portal',
-  description: 'Administrative workspace for AAHAR.'
+  title: {
+    default: 'AAHAR | Food & Cafeteria Management Platform',
+    template: '%s | AAHAR',
+  },
+  description: 'AAHAR Food & Cafeteria Management Platform for Max Healthcare.',
+  icons: {
+    icon: '/brand/max-favicon.ico',
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>
         <Providers>{children}</Providers>
       </body>

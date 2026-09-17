@@ -8,6 +8,7 @@ node_modules
 dist
 coverage
 services/**/src/generated
+apps/admin-portal/public/uploads/
 
 # Environment
 .env
@@ -32,3 +33,5 @@ Thumbs.db
 package-lock.json
 yarn.lock
 bun.lockb
+
+*.tsbuildinfo

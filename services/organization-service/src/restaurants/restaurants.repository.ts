@@ -6,6 +6,15 @@ export const restaurantInclude = {
   hospital: true,
   kitchen: true,
   location: true,
+  restaurantKitchens: {
+    include: {
+      kitchen: true
+    },
+    where: {
+      deletedAt: null,
+      isActive: true
+    }
+  },
   store: true
 } satisfies Prisma.RestaurantInclude;
 
@@ -14,6 +23,10 @@ export type RestaurantWithRelations = Prisma.RestaurantGetPayload<{
 }>;
 
 type RestaurantClient = Prisma.TransactionClient | PrismaService;
+
+interface RestaurantCodeSequenceRow {
+  nextValue: bigint;
+}
 
 @Injectable()
 export class RestaurantsRepository {
@@ -76,6 +89,23 @@ export class RestaurantsRepository {
     });
   }
 
+  async findActiveKitchens(
+    ids: string[],
+    hospitalId: string,
+    client: RestaurantClient,
+  ): Promise<Kitchen[]> {
+    return client.kitchen.findMany({
+      where: {
+        deletedAt: null,
+        hospitalId,
+        id: {
+          in: ids
+        },
+        isActive: true
+      }
+    });
+  }
+
   async findActiveLocation(
     id: string,
     hospitalId: string,
@@ -120,6 +150,29 @@ export class RestaurantsRepository {
     });
   }
 
+  async findByCode(
+    restaurantCode: string,
+    excludeId?: string,
+    client: RestaurantClient = this.prisma,
+  ): Promise<RestaurantWithRelations | null> {
+    return client.restaurant.findFirst({
+      include: restaurantInclude,
+      where: {
+        restaurantCode,
+        ...(excludeId ? { id: { not: excludeId } } : {})
+      }
+    });
+  }
+
+  async getNextRestaurantCodeSequenceValue(client: RestaurantClient): Promise<number> {
+    const rows = await client.$queryRaw<RestaurantCodeSequenceRow[]>`
+      SELECT nextval('restaurant_code_sequence')::bigint AS "nextValue"
+    `;
+    const nextValue = rows[0]?.nextValue;
+
+    return typeof nextValue === 'bigint' ? Number(nextValue) : Number(nextValue ?? 0);
+  }
+
   async findMany(args: Prisma.RestaurantFindManyArgs): Promise<RestaurantWithRelations[]> {
     return this.prisma.restaurant.findMany({
       ...args,
@@ -135,6 +188,28 @@ export class RestaurantsRepository {
     },
     client: RestaurantClient,
   ): Promise<void> {
+    await client.restaurantKitchen.updateMany({
+      data: {
+        deletedAt: data.deletedAt,
+        isActive: false,
+        updatedBy: data.updatedBy
+      },
+      where: {
+        deletedAt: null,
+        restaurantId
+      }
+    });
+    await client.posDeviceRestaurant.updateMany({
+      data: {
+        deletedAt: data.deletedAt,
+        isActive: false,
+        updatedBy: data.updatedBy
+      },
+      where: {
+        deletedAt: null,
+        restaurantId
+      }
+    });
     await client.counter.updateMany({
       data: {
         deletedAt: data.deletedAt,
@@ -146,6 +221,58 @@ export class RestaurantsRepository {
         restaurantId
       }
     });
+  }
+
+  async syncKitchens(
+    restaurantId: string,
+    kitchenIds: string[],
+    actorId: string | undefined,
+    client: RestaurantClient,
+  ): Promise<void> {
+    const selectedIds = new Set(kitchenIds);
+    const existingMappings = await client.restaurantKitchen.findMany({
+      where: {
+        restaurantId
+      }
+    });
+    const existingIds = new Set(existingMappings.map((mapping) => mapping.kitchenId));
+    const deletedAt = new Date();
+
+    await Promise.all(
+      existingMappings.map((mapping) =>
+        client.restaurantKitchen.update({
+          data: selectedIds.has(mapping.kitchenId)
+            ? {
+                deletedAt: null,
+                isActive: true,
+                updatedBy: actorId
+              }
+            : {
+                deletedAt,
+                isActive: false,
+                updatedBy: actorId
+              },
+          where: {
+            id: mapping.id
+          }
+        }),
+      ),
+    );
+
+    const newMappings = kitchenIds
+      .filter((kitchenId) => !existingIds.has(kitchenId))
+      .map((kitchenId) => ({
+        createdBy: actorId,
+        kitchenId,
+        restaurantId,
+        updatedBy: actorId
+      }));
+
+    if (newMappings.length > 0) {
+      await client.restaurantKitchen.createMany({
+        data: newMappings
+      });
+    }
   }
 
   async update(

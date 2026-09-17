@@ -1,6 +1,8 @@
 import type { AuthTokens } from '@aahar/api-client';
 
 const STORAGE_KEY = 'aahar.admin.auth';
+export const AUTH_STORAGE_EVENT = 'aahar:auth-storage-changed';
+const AAHAR_STORAGE_PREFIXES = ['aahar.', 'aahar-', 'aahar:'];
 
 export interface StoredAuth extends AuthTokens {
   savedAt: string;
@@ -8,6 +10,12 @@ export interface StoredAuth extends AuthTokens {
 
 function canUseStorage(): boolean {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
+}
+
+function dispatchAuthStorageEvent(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event(AUTH_STORAGE_EVENT));
+  }
 }
 
 export function readStoredAuth(): StoredAuth | null {
@@ -50,6 +58,8 @@ export function saveStoredAuth(tokens: AuthTokens): StoredAuth {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(storedAuth));
   }
 
+  dispatchAuthStorageEvent();
+
   return storedAuth;
 }
 
@@ -57,6 +67,30 @@ export function clearStoredAuth(): void {
   if (canUseStorage()) {
     window.localStorage.removeItem(STORAGE_KEY);
   }
+
+  dispatchAuthStorageEvent();
+}
+
+export function clearAaharClientStorage(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  [window.localStorage, window.sessionStorage].forEach((storage) => {
+    const keysToRemove: string[] = [];
+
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+
+      if (key && AAHAR_STORAGE_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+        keysToRemove.push(key);
+      }
+    }
+
+    keysToRemove.forEach((key) => storage.removeItem(key));
+  });
+
+  dispatchAuthStorageEvent();
 }
 
 export function getStoredAccessToken(): string | null {

@@ -1,95 +1,230 @@
 # AAHAR
 
-AAHAR is a production-ready monorepo scaffold for the admin web app, backend services, shared packages, PostgreSQL, Redis, Prisma, and Docker infrastructure.
+AAHAR is a full-stack food, cafeteria, kitchen, and inventory management platform. It provides an administrative web application, three domain-focused backend services, role-based access control, OTP authentication, stock workflows, and a shared PostgreSQL data model.
 
-Business logic is intentionally not implemented yet. This repository establishes structure, tooling, package boundaries, and runtime configuration.
+This repository is a pnpm/Turborepo monorepo designed so a developer can run the complete platform locally, understand the major domains, and add new features without first reverse-engineering the project layout.
 
-## Stack
+## What is included
 
-- Next.js 15
-- TypeScript
-- NestJS
-- PostgreSQL
-- Prisma
-- Redis
-- Turborepo
-- pnpm workspaces
+- OTP-based login, JWT access/refresh tokens, logout, session revocation, and audit logging
+- Users, roles, permissions, and role-based access control (RBAC)
+- Hospitals, locations, stores, kitchens, restaurants, counters, and employees
+- Item categories, items, prices, time slots, and location-specific item mappings
+- POS devices and payment-machine mappings
+- Goods receipt notes (GRNs), batches, stock balances, and stock ledgers
+- Kitchen production and kitchen stock
+- Store-to-restaurant and kitchen-to-restaurant transfer workflows
+- Restaurant menus and restaurant stock
+- Responsive Next.js administration portal with light/dark theme support
+- OpenAPI/Swagger documentation for every backend service
 
-## Repository Structure
+## Technology stack
 
-```txt
+| Area                   | Technology                                                     |
+| ---------------------- | -------------------------------------------------------------- |
+| Web application        | Next.js 15, React 19, TypeScript, Tailwind CSS, TanStack Query |
+| Backend services       | NestJS 11, TypeScript, Passport, JWT, Swagger                  |
+| Database               | PostgreSQL 16, Prisma ORM                                      |
+| Cache and sessions     | Redis 7                                                        |
+| Monorepo tooling       | pnpm workspaces, Turborepo                                     |
+| Local infrastructure   | Docker and Docker Compose                                      |
+| Validation and quality | Zod, class-validator, ESLint, Prettier, Husky                  |
+
+## Architecture
+
+```text
+Browser
+  |
+  +-- Admin Portal (Next.js) ------------------------- :3000
+        |
+        +-- Auth Service ----------------------------- :4001
+        |     OTP, JWT, refresh tokens, logout
+        |
+        +-- User Service ----------------------------- :4002
+        |     users, roles, permissions
+        |
+        +-- Organization Service --------------------- :4003
+              hospitals, locations, masters, inventory,
+              kitchen, transfers, stock, and POS
+
+Backend services
+  +-- PostgreSQL ------------------------------------- :5432
+  +-- Redis ------------------------------------------ :6379
+```
+
+All APIs use the `/api/v1` prefix. The services share the canonical Prisma schema in `prisma/schema.prisma` and common authentication/security utilities from `packages/auth`.
+
+## Repository layout
+
+```text
 apps/
-  admin-portal/
+  admin-portal/            Next.js administration frontend
 services/
-  auth-service/
-  user-service/
-  organization-service/
+  auth-service/            OTP and token lifecycle APIs
+  user-service/            User, role, and permission APIs
+  organization-service/    Organization, master-data, and inventory APIs
 packages/
-  ui/
-  types/
-  api-client/
-  auth/
-  config/
-infra/
-  docker/
-  scripts/
-  postgres/
-  redis/
+  api-client/              Shared API client utilities
+  auth/                    JWT guards, RBAC, middleware, and service bootstrap
+  config/                  Environment validation and loading
+  types/                   Shared TypeScript types
+  ui/                      Shared UI components
 prisma/
+  schema.prisma            Canonical database schema
+  migrations/              Versioned database migrations
+  seed.ts                  Development seed data
+infra/docker/              Dockerfiles and Compose configuration
+docs/                      Product, architecture, API, security, and UX documents
 ```
 
 ## Prerequisites
 
-- Node.js 22+
-- pnpm 10+
-- Docker and Docker Compose
+Install the following tools before starting:
 
-Enable pnpm through Corepack:
+- Node.js 22 or newer
+- pnpm 10 or newer
+- Docker Desktop, or Docker Engine with Docker Compose
+- Git
+
+Check the installed versions:
+
+```bash
+node --version
+pnpm --version
+docker --version
+docker compose version
+```
+
+If pnpm is unavailable, enable it through Corepack:
 
 ```bash
 corepack enable
+corepack prepare pnpm@10.0.0 --activate
 ```
 
-## Setup
+## Quick start: local development
 
-Install dependencies:
+This is the recommended workflow. PostgreSQL and Redis run in Docker while the frontend and backend services run locally with hot reload.
+
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/knowsudhansh/aahar.git
+cd aahar
 pnpm install
 ```
 
-Create local environment files:
+### 2. Create the environment file
+
+macOS or Linux:
 
 ```bash
 cp .env.example .env
-cp apps/admin-portal/.env.example apps/admin-portal/.env
-cp services/auth-service/.env.example services/auth-service/.env
-cp services/user-service/.env.example services/user-service/.env
-cp services/organization-service/.env.example services/organization-service/.env
 ```
 
-Generate Prisma clients:
+Windows PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+The defaults in `.env.example` are suitable for local development. Before any shared or production deployment, replace both JWT secrets with strong, unique values of at least 32 characters.
+
+### 3. Start PostgreSQL and Redis
+
+```bash
+docker compose -f infra/docker/docker-compose.yml up -d postgres redis
+```
+
+Confirm that both containers are healthy:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml ps
+```
+
+### 4. Prepare the database
 
 ```bash
 pnpm db:generate
-```
-
-Run Sprint 1 migrations and seed foundation roles/permissions:
-
-```bash
-pnpm db:migrate --name sprint_1_foundation
+pnpm db:deploy
 pnpm db:seed
 ```
 
-## Development
+`db:generate` creates the Prisma client, `db:deploy` applies all committed migrations, and `db:seed` creates the development roles, permissions, organization data, and administrator account.
 
-Run all workspaces through Turborepo:
+### 5. Start the applications
 
 ```bash
 pnpm dev
 ```
 
-Run one workspace:
+Turborepo starts the frontend, all three services, and the shared-package TypeScript watchers in the same terminal. Keep this terminal open while developing.
+
+### 6. Open the platform
+
+- Admin portal: http://localhost:3000
+- Auth health: http://localhost:4001/api/v1/health
+- User health: http://localhost:4002/api/v1/health
+- Organization health: http://localhost:4003/api/v1/health
+
+## Development login and OTP
+
+The seed creates this active super administrator:
+
+```text
+Email:  admin@aahar.local
+Mobile: 9999999999
+```
+
+Request an OTP from the login page. In development, the Auth Service prints the generated OTP to the terminal running `pnpm dev`:
+
+```json
+{
+  "channel": "email",
+  "event": "auth_otp_generated",
+  "otp": "482913",
+  "target": "admin@aahar.local"
+}
+```
+
+Enter the value from the `otp` field. The fixed development OTP `000000` is also accepted when `NODE_ENV=development`.
+
+To request an OTP without the browser, run this in a second terminal.
+
+macOS or Linux:
+
+```bash
+curl -X POST http://localhost:4001/api/v1/auth/send-otp \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@aahar.local"}'
+```
+
+Windows PowerShell:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri "http://localhost:4001/api/v1/auth/send-otp" `
+  -ContentType "application/json" `
+  -Body '{"email":"admin@aahar.local"}'
+```
+
+Never enable terminal OTP logging or the fixed OTP in production.
+
+## Service URLs
+
+| Service              | Base URL                       | Health           | Swagger                          |
+| -------------------- | ------------------------------ | ---------------- | -------------------------------- |
+| Admin Portal         | `http://localhost:3000`        | —                | —                                |
+| Auth Service         | `http://localhost:4001/api/v1` | `/api/v1/health` | `http://localhost:4001/api/docs` |
+| User Service         | `http://localhost:4002/api/v1` | `/api/v1/health` | `http://localhost:4002/api/docs` |
+| Organization Service | `http://localhost:4003/api/v1` | `/api/v1/health` | `http://localhost:4003/api/docs` |
+
+Swagger is served at `/api/docs`, while business APIs are served beneath `/api/v1`.
+
+## Running one workspace
+
+Use filters when working on a single application:
 
 ```bash
 pnpm --filter @aahar/admin-portal dev
@@ -98,58 +233,155 @@ pnpm --filter @aahar/user-service dev
 pnpm --filter @aahar/organization-service dev
 ```
 
-Default local ports:
+PostgreSQL and Redis must still be running, and backend services must be able to read the root `.env` file.
 
-- Admin Portal: `3000`
-- Auth Service: `4001`
-- User Service: `4002`
-- Organization Service: `4003`
-- PostgreSQL: `5432`
-- Redis: `6379`
-- Swagger docs:
-  - Auth Service: `http://localhost:4001/api/v1/docs`
-  - User Service: `http://localhost:4002/api/v1/docs`
-  - Organization Service: `http://localhost:4003/api/v1/docs`
-
-## Quality Gates
+## Database commands
 
 ```bash
-pnpm lint
-pnpm typecheck
-pnpm format:check
-pnpm build
+# Regenerate Prisma Client after schema changes
+pnpm db:generate
+
+# Create a migration while developing a schema change
+pnpm db:migrate --name describe_your_change
+
+# Apply committed migrations without creating a new one
+pnpm db:deploy
+
+# Re-run the idempotent development seed
+pnpm db:seed
+
+# Open Prisma Studio
+pnpm db:studio
 ```
 
-Husky runs `lint-staged` before commits and Commitlint validates commit messages using Conventional Commits.
+The source of truth is `prisma/schema.prisma`. Do not create service-specific Prisma schemas.
 
-## Docker
+## Running the complete stack with Docker
 
-Start PostgreSQL, Redis, the three NestJS services, and the Next.js admin portal:
+Create `.env`, start the database, and prepare it before launching all application containers:
 
 ```bash
-docker compose -f infra/docker/docker-compose.yml up --build
+docker compose -f infra/docker/docker-compose.yml up -d postgres redis
+pnpm db:generate
+pnpm db:deploy
+pnpm db:seed
+docker compose -f infra/docker/docker-compose.yml up --build -d
 ```
 
-Stop the stack:
+View logs:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml logs -f
+```
+
+Stop the stack while preserving database data:
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml down
 ```
 
-Remove local database and Redis volumes:
+Remove the containers and local database/Redis volumes:
 
 ```bash
 docker compose -f infra/docker/docker-compose.yml down -v
 ```
 
-## Environment Configuration
+The `-v` command permanently deletes the local Docker database and Redis data.
 
-Root `.env.example` contains shared defaults for Docker Compose and local development. Each app and service also has its own `.env.example` so deployment-specific configuration can stay close to the runtime that consumes it.
+## Quality checks
 
-The canonical Prisma schema lives at `prisma/schema.prisma`. It contains the Sprint 1 foundation tables for identity, organization, and audit logging. Service-level Prisma placeholder schemas were removed to avoid divergent database definitions.
+Run these before opening a pull request:
 
-## Notes
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm format:check
+pnpm build
+```
 
-- NestJS services boot with global config, validation, Swagger, JWT validation, RBAC guards, throttling, and a global `/api/v1` prefix.
-- Shared packages are intentionally minimal and ready for future domain types, reusable UI, auth utilities, environment config, and API clients.
-- Business controllers and workflows are intentionally not implemented in this foundation pass.
+Tests currently use workspace-level placeholders in areas where automated suites have not yet been added. Type checking, linting, formatting, and production builds remain required quality gates.
+
+## Adding a feature
+
+1. Update your local base branch and create a focused branch:
+
+   ```bash
+   git switch main
+   git pull --ff-only
+   git switch -c feature/short-feature-name
+   ```
+
+2. Read the relevant product and technical documentation in `docs/`.
+3. Place frontend routes in `apps/admin-portal/app` and reusable frontend components in `apps/admin-portal/components` or `packages/ui`.
+4. Put domain logic in the owning NestJS service; avoid importing private source files across services.
+5. Update `prisma/schema.prisma` and create a migration when persistent data changes.
+6. Protect new endpoints with the existing JWT/RBAC utilities and add appropriate permissions to the seed.
+7. Update API documentation, shared types, and this README when behavior or setup changes.
+8. Run the quality checks and manually verify the affected workflow.
+
+Commit messages follow Conventional Commits, for example:
+
+```text
+feat: add supplier master
+fix: prevent duplicate transfer acknowledgement
+docs: clarify local database setup
+```
+
+## Key documentation
+
+- `docs/AAHAR_BOOK.md` — consolidated project knowledge base
+- `docs/PRD.md` and `docs/BRD.md` — product and business requirements
+- `docs/TRD.md` and `docs/DEPLOYMENT_ARCHITECTURE.md` — technical architecture
+- `docs/API_SPEC.md` — API conventions and contracts
+- `docs/ERD.md` — data model overview
+- `docs/SECURITY_ARCHITECTURE.md` and `docs/THREAT_MODEL.md` — security controls and risks
+- `docs/UI_UX_GUIDELINES.md` — interface and interaction standards
+- `docs/REGRESSION_CHECKLIST.md` — manual verification checklist
+- `docs/DEPLOYMENT_GUIDE.md` — deployment and operations guidance
+
+## Troubleshooting
+
+### Port 5432 is already in use
+
+Choose another host port, for example `5433`, and update the local database URL:
+
+```text
+POSTGRES_PORT=5433
+DATABASE_URL=postgresql://aahar:aahar_password@localhost:5433/aahar?schema=public
+```
+
+Restart the PostgreSQL container after changing the port.
+
+### A backend service fails environment validation
+
+Confirm that `.env` exists in the repository root and contains `DATABASE_URL`, `REDIS_URL`, both JWT secrets, and the service port variables. JWT secrets must contain at least 32 characters.
+
+### OTP is not visible
+
+OTP values are logged only when `NODE_ENV=development`. Make sure the Auth Service is running and watch the terminal after requesting an OTP. The development-only fallback is `000000`.
+
+### Prisma cannot connect
+
+Check container health and verify that `DATABASE_URL` uses the host port published by Docker:
+
+```bash
+docker compose -f infra/docker/docker-compose.yml ps
+pnpm exec prisma migrate status --schema prisma/schema.prisma
+```
+
+### Frontend cannot call an API
+
+Verify that all services are healthy and that the API URLs and `CORS_ORIGINS` in `.env` match the frontend origin. The default frontend origin is `http://localhost:3000`.
+
+## Security notes
+
+- Never commit `.env`, access tokens, database passwords, OTP values, or production secrets.
+- Replace the example JWT secrets before deploying outside a local machine.
+- OTPs must be delivered through an approved provider and must never be logged in production.
+- Keep authorization in backend guards and policies; hiding a frontend control is not authorization.
+- Review `docs/SECURITY_ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, and `docs/PRODUCTION_READINESS.md` before deployment.
+
+## Current development status
+
+AAHAR contains working foundations and implemented workflows across authentication, administration, master data, inventory, kitchen production, transfers, and stock visibility. Some production integrations and automated test coverage remain project work. Consult `docs/IMPLEMENTATION_PLAN.md`, `docs/SPRINT_PLAN.md`, and `docs/PRODUCTION_READINESS.md` before treating the platform as production-ready.

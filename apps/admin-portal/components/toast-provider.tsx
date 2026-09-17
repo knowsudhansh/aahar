@@ -1,14 +1,7 @@
 'use client';
 
 import { AlertTriangle, CheckCircle2, Info, X } from 'lucide-react';
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  type ReactNode
-} from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 type ToastVariant = 'error' | 'info' | 'success';
@@ -33,14 +26,14 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 const variantStyles: Record<ToastVariant, string> = {
   error: 'border-red-200 bg-red-50 text-red-950',
-  info: 'border-sky-200 bg-sky-50 text-sky-950',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-950'
+  info: 'border-blue-200 bg-blue-50 text-brand-navy',
+  success: 'border-emerald-200 bg-brand-mint text-emerald-950',
 };
 
 const variantIcons: Record<ToastVariant, typeof CheckCircle2> = {
   error: AlertTriangle,
   info: Info,
-  success: CheckCircle2
+  success: CheckCircle2,
 };
 
 export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
@@ -60,8 +53,8 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
           description,
           id,
           title,
-          variant
-        }
+          variant,
+        },
       ]);
 
       window.setTimeout(() => dismissToast(id), 5000);
@@ -74,7 +67,7 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
   const contextValue = useMemo(
     () => ({
       dismissToast,
-      showToast
+      showToast,
     }),
     [dismissToast, showToast],
   );
@@ -89,7 +82,7 @@ export function ToastProvider({ children }: Readonly<{ children: ReactNode }>) {
           return (
             <div
               className={cn(
-                'flex items-start gap-3 rounded-lg border p-4 shadow-lg shadow-slate-900/10',
+                'flex items-start gap-3 rounded-lg border p-4 shadow-lg shadow-slate-900/10 backdrop-blur',
                 variantStyles[toast.variant],
               )}
               key={toast.id}

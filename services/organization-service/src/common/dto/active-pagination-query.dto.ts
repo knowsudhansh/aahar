@@ -3,7 +3,7 @@ import { Transform } from 'class-transformer';
 import { IsBoolean, IsOptional } from 'class-validator';
 import { PaginationQueryDto } from './pagination-query.dto';
 
-function toOptionalBoolean(value: unknown): unknown {
+export function toOptionalBoolean(value: unknown): unknown {
   if (value === undefined || value === null || value === '') {
     return undefined;
   }

@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { getPageMeta, getPagination } from '../common/pagination';
@@ -107,7 +113,7 @@ export class KitchensService {
           await this.assertActiveLocation(dto.locationId, dto.hospitalId, tx);
         }
 
-        await this.assertUniqueKitchenCode(dto.hospitalId, dto.kitchenCode, undefined, tx);
+        const kitchenCode = await this.generateUniqueKitchenCode(tx);
 
         const kitchen = await this.kitchens.create(
           {
@@ -115,7 +121,7 @@ export class KitchensService {
             createdBy: context.actorId,
             hospitalId: dto.hospitalId,
             isActive: dto.isActive ?? true,
-            kitchenCode: dto.kitchenCode,
+            kitchenCode,
             kitchenName: dto.kitchenName,
             locationId: dto.locationId,
             openingTime: dto.openingTime,
@@ -168,6 +174,10 @@ export class KitchensService {
         }
 
         if (dto.isActive !== undefined) {
+          if (dto.isActive && dto.hospitalId === undefined && !existing.hospital.isActive) {
+            throw new BadRequestException('Location is inactive. Kitchen cannot be activated.');
+          }
+
           data.isActive = dto.isActive;
         }
 
@@ -299,6 +309,25 @@ export class KitchensService {
     if (kitchen) {
       throw new ConflictException('Kitchen code already exists within hospital');
     }
+  }
+
+  private async generateUniqueKitchenCode(client: KitchenClient): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const nextValue = await this.kitchens.getNextKitchenCodeSequenceValue(client);
+
+      if (!Number.isSafeInteger(nextValue) || nextValue < 1) {
+        throw new InternalServerErrorException('Unable to generate kitchen code');
+      }
+
+      const kitchenCode = `KIT${String(nextValue).padStart(4, '0')}`;
+      const existing = await this.kitchens.findByCode(kitchenCode, undefined, client);
+
+      if (!existing) {
+        return kitchenCode;
+      }
+    }
+
+    throw new ConflictException('Kitchen code already exists');
   }
 
   private async findActiveKitchen(

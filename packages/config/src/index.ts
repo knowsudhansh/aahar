@@ -5,7 +5,9 @@ import path from 'node:path';
 const serviceEnvSchema = z.object({
   CORS_ORIGINS: z
     .string()
-    .default('http://localhost:3000,http://localhost:4001,http://localhost:4002,http://localhost:4003'),
+    .default(
+      'http://localhost:3000,http://127.0.0.1:3000,http://172.25.208.1:3000,http://172.29.132.245:3000,http://localhost:4001,http://localhost:4002,http://localhost:4003',
+    ),
   DATABASE_URL: z.string().url(),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_ACCESS_TOKEN_TTL: z.string().default('30m'),

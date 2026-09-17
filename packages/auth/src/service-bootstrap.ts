@@ -14,6 +14,9 @@ export interface SecurityBaselineOptions {
 
 const localDevelopmentCorsOrigins = [
   'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://172.25.208.1:3000',
+  'http://172.29.132.245:3000',
   'http://localhost:4001',
   'http://localhost:4002',
   'http://localhost:4003'

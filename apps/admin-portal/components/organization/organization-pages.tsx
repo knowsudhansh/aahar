@@ -3,32 +3,38 @@
 import { Button } from '@aahar/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Activity,
   ArrowLeft,
+  ArrowRightLeft,
   Building2,
   ChefHat,
+  ClipboardList,
   CreditCard,
   Eye,
-  Hospital,
   Loader2,
   MapPin,
   Pencil,
   Plus,
+  PackageOpen,
+  QrCode,
   RefreshCw,
   Search,
   Store,
   Trash2,
   Utensils,
-  type LucideIcon
+  UsersRound,
+  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
 import {
-  useForm,
-  type FieldValues,
-  type Path,
-  type UseFormReturn
-} from 'react-hook-form';
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+  type TextareaHTMLAttributes,
+} from 'react';
+import { useForm, type FieldValues, type Path, type UseFormReturn } from 'react-hook-form';
 import { z, type ZodError } from 'zod';
 import type {
   ApiList,
@@ -42,36 +48,75 @@ import type {
   ListQuery,
   Location,
   LocationInput,
+  OnlinePaymentOption,
   Restaurant,
   RestaurantInput,
   SortOrder,
   Store as StoreRecord,
-  StoreInput
+  StoreInput,
 } from '@aahar/api-client';
+import {
+  AppPageHeader,
+  ChartCard,
+  EmptyState,
+  KpiCard,
+  LoadingSkeleton,
+  MetricTile,
+  StatusBadge as DesignStatusBadge,
+} from '@/components/design-system';
+import { useLocationContext } from '@/components/location-context';
 import { useToast } from '@/components/toast-provider';
-import { Badge, Field, Input, Panel, Select, Skeleton } from '@/components/ui';
+import { Badge, Field, FieldError, Input, Label, Panel, Select, Skeleton } from '@/components/ui';
 import { getApiErrorMessage, organizationApi } from '@/lib/api';
+import { getCitiesForState, INDIAN_STATES } from '@/lib/india-locations';
 import { cn } from '@/lib/utils';
 
 const listLimit = 10;
 const skeletonRows = ['row-1', 'row-2', 'row-3', 'row-4', 'row-5'];
+const restaurantImageMaxSizeBytes = 5 * 1024 * 1024;
+const restaurantImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
 const optionalText = (maxLength: number) =>
   z.string().trim().max(maxLength, `Use ${maxLength} characters or fewer.`);
-const optionalUuid = z.string().uuid().or(z.literal(''));
-const timeField = z
+const optionalEmail = z
   .string()
   .trim()
-  .regex(/^$|^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm format.');
+  .max(255, 'Use 255 characters or fewer.')
+  .refine((value) => !value || z.string().email().safeParse(value).success, {
+    message: 'Enter a valid email address.',
+  });
+const postalCodeSchema = z
+  .string()
+  .trim()
+  .max(6, 'Postal code must be 6 digits.')
+  .refine((value) => !value || /^\d{6}$/.test(value), {
+    message: 'Postal code must be 6 digits.',
+  });
+const onlinePaymentOptions: Array<{ label: string; value: OnlinePaymentOption }> = [
+  { label: 'None', value: 'NONE' },
+  { label: 'PayU', value: 'PAYU' },
+  { label: 'RazorPay', value: 'RAZORPAY' },
+];
+const freezeServicesMessage =
+  'Turning this off will freeze related services. Existing records will remain visible. Continue?';
+const inactiveLocationMessage =
+  'This Location is inactive. Services for this Location are currently frozen.';
 
 const hospitalSchema = z.object({
-  address: optionalText(255),
-  billPrefix: optionalText(20),
-  city: optionalText(80),
-  gstApplicable: z.boolean(),
-  hospitalCode: z.string().trim().min(1, 'Hospital code is required.').max(50),
-  hospitalName: z.string().trim().min(1, 'Hospital name is required.').max(150),
+  address: z.string().trim().min(1, 'Address is required.').max(500),
+  area: optionalText(50),
+  city: z.string().trim().min(1, 'City is required.').max(100),
+  displayName: z.string().trim().min(1, 'Display name is required.').max(255),
+  invoicePrefix: optionalText(50),
+  ipAddress: optionalText(100),
   isActive: z.boolean(),
-  state: optionalText(80)
+  latitude: optionalText(50),
+  locationCode: z.string().trim().min(1, 'Location code is required.').max(50),
+  longitude: optionalText(50),
+  onlinePaymentOption: z.enum(['NONE', 'PAYU', 'RAZORPAY']),
+  postalCode: postalCodeSchema,
+  state: z.string().trim().min(1, 'State is required.').max(100),
+  title: z.string().trim().min(1, 'Title is required.').max(255),
+  visitingCardAddress: optionalText(500),
 });
 
 const locationSchema = z.object({
@@ -79,56 +124,94 @@ const locationSchema = z.object({
   area: optionalText(100),
   building: optionalText(100),
   floor: optionalText(50),
-  hospitalId: z.string().uuid('Select a hospital.'),
+  hospitalId: z.string().uuid('Select a location.'),
   isActive: z.boolean(),
-  locationName: z.string().trim().min(1, 'Location name is required.').max(150)
+  locationName: z.string().trim().min(1, 'Location name is required.').max(150),
 });
 
 const storeSchema = z.object({
-  address: optionalText(255),
-  hospitalId: z.string().uuid('Select a hospital.'),
+  hospitalId: z.string().uuid('Select a location.'),
   isActive: z.boolean(),
-  storeCode: z.string().trim().min(1, 'Store code is required.').max(50),
   storeName: z.string().trim().min(1, 'Store name is required.').max(150),
-  storeType: optionalText(80)
 });
 
 const kitchenSchema = z.object({
-  closingTime: timeField,
-  hospitalId: z.string().uuid('Select a hospital.'),
+  hospitalId: z.string().uuid('Select a location.'),
   isActive: z.boolean(),
-  kitchenCode: z.string().trim().min(1, 'Kitchen code is required.').max(50),
   kitchenName: z.string().trim().min(1, 'Kitchen name is required.').max(150),
-  openingTime: timeField
 });
 
 const restaurantSchema = z.object({
+  accountNumber: optionalText(100),
   address: optionalText(255),
-  b2cQrEnabled: z.boolean(),
-  closingTime: timeField,
-  hospitalId: z.string().uuid('Select a hospital.'),
-  inRoomDiningEnabled: z.boolean(),
+  bankNameBranch: optionalText(255),
+  email: optionalEmail,
+  fssaiNumbers: optionalText(500),
+  gstNumber: optionalText(50),
+  hospitalId: z.string().uuid('Select a location.'),
+  ifscCode: optionalText(50),
+  isAtTableDiningEnabled: z.boolean(),
+  isDeliveryEnabled: z.boolean(),
+  isHomeDeliveryEnabled: z.boolean(),
+  isInCarDiningEnabled: z.boolean(),
+  isInRoomDiningEnabled: z.boolean(),
+  isInventoryEnabled: z.boolean(),
+  isOffline: z.boolean(),
+  isOnlineOrdersEnabled: z.boolean(),
+  isOpen24x7: z.boolean(),
+  isPosOrdersEnabled: z.boolean(),
+  isRegisteredInGst: z.boolean(),
+  isTakeawayEnabled: z.boolean(),
+  isVegOnly: z.boolean(),
   isActive: z.boolean(),
-  kitchenId: optionalUuid,
-  onlineOrderingEnabled: z.boolean(),
-  openingTime: timeField,
-  restaurantCode: z.string().trim().min(1, 'Restaurant code is required.').max(50),
+  legalName: optionalText(255),
+  mobile: optionalText(30),
+  panNumber: optionalText(50),
   restaurantName: z.string().trim().min(1, 'Restaurant name is required.').max(150),
-  storeId: optionalUuid
+  sodexoMid: optionalText(100),
+  sodexoTid: optionalText(100),
+  sunBu: optionalText(100),
+  sunT1: optionalText(100),
+  sunT2: optionalText(100),
+  unitNameForQr: optionalText(255),
+  upiId: optionalText(255),
 });
 
 const counterSchema = z.object({
   counterCode: z.string().trim().min(1, 'Counter code is required.').max(50),
   counterName: z.string().trim().min(1, 'Counter name is required.').max(150),
-  hospitalId: z.string().uuid('Select a hospital.'),
+  hospitalId: z.string().uuid('Select a location.'),
   isActive: z.boolean(),
   paymentDeviceId: optionalText(100),
   pineLabsDeviceId: optionalText(100),
   posDeviceId: optionalText(100),
-  restaurantId: z.string().uuid('Select a restaurant.')
+  restaurantId: z.string().uuid('Select a restaurant.'),
 });
 
 type ActiveFilter = '' | 'active' | 'inactive';
+type BadgeVariant = 'danger' | 'info' | 'neutral' | 'success' | 'warning';
+type OnlinePaymentFilter = '' | OnlinePaymentOption;
+type LocationDisplaySource = Pick<
+  HospitalRecord,
+  'hospitalCode' | 'hospitalName' | 'id' | 'isActive'
+> &
+  Partial<
+    Pick<
+      HospitalRecord,
+      | 'billPrefix'
+      | 'city'
+      | 'displayName'
+      | 'invoicePrefix'
+      | 'locationCode'
+      | 'postalCode'
+      | 'state'
+      | 'title'
+    >
+  >;
+type RestaurantOptionBadge = {
+  label: string;
+  variant: BadgeVariant;
+};
 type HospitalFormValues = z.infer<typeof hospitalSchema>;
 type LocationFormValues = z.infer<typeof locationSchema>;
 type StoreFormValues = z.infer<typeof storeSchema>;
@@ -153,6 +236,7 @@ interface EntityColumn<TItem> {
 interface EntityListConfig<TItem extends { id: string; isActive: boolean; updatedAt: string }> {
   columns: EntityColumn<TItem>[];
   createHref: string;
+  createLabel?: string;
   entityKey: string;
   emptyLabel: string;
   icon: LucideIcon;
@@ -172,7 +256,7 @@ interface PaginationControlsProps {
 
 const dateFormatter = new Intl.DateTimeFormat('en-IN', {
   dateStyle: 'medium',
-  timeStyle: 'short'
+  timeStyle: 'short',
 });
 
 function activeFilterToBoolean(value: ActiveFilter): boolean | undefined {
@@ -198,7 +282,7 @@ function applyValidationErrors<TFormValues extends FieldValues>(
 
     if (typeof fieldName === 'string') {
       form.setError(fieldName as Path<TFormValues>, {
-        message: issue.message
+        message: issue.message,
       });
     }
   });
@@ -214,12 +298,110 @@ function optionalValue(value: string | undefined): string | undefined {
   return trimmedValue ? trimmedValue : undefined;
 }
 
-function optionalId(value: string | undefined): string | undefined {
-  return value || undefined;
+function getLocationTitle(hospital: LocationDisplaySource): string {
+  return hospital.title ?? hospital.hospitalName;
+}
+
+function getLocationCode(hospital: LocationDisplaySource): string {
+  return hospital.locationCode ?? hospital.hospitalCode;
+}
+
+function getLocationDisplayName(hospital: LocationDisplaySource): string {
+  return hospital.displayName ?? getLocationTitle(hospital);
+}
+
+function getLocationInvoicePrefix(hospital: LocationDisplaySource): string | null {
+  return hospital.invoicePrefix ?? hospital.billPrefix ?? null;
+}
+
+function getLocationPostalCode(hospital: LocationDisplaySource): string | null {
+  return hospital.postalCode ?? null;
+}
+
+function formatLocationOption(hospital: LocationDisplaySource): string {
+  const code = getLocationCode(hospital);
+  const stateAndPostal = [hospital.state, getLocationPostalCode(hospital)]
+    .filter(Boolean)
+    .join('-');
+  const locationDetails = [hospital.city, stateAndPostal || undefined].filter(Boolean).join(', ');
+
+  return `${code} - ${getLocationTitle(hospital)}${
+    locationDetails ? `, ${locationDetails}` : ''
+  } (${code})`;
+}
+
+function formatRestaurantLocationDisplay(
+  hospital: LocationDisplaySource | null | undefined,
+): string {
+  if (!hospital) {
+    return 'Location not set';
+  }
+
+  const code = getLocationCode(hospital);
+  const stateAndPostal = [hospital.state, getLocationPostalCode(hospital)]
+    .filter(Boolean)
+    .join('-');
+  const locationDetails = [hospital.city, stateAndPostal || undefined].filter(Boolean).join(', ');
+  const primaryText = [code, getLocationDisplayName(hospital)].filter(Boolean).join(' - ');
+
+  return (
+    [primaryText, locationDetails || undefined].filter(Boolean).join(', ') || 'Location not set'
+  );
+}
+
+function toHospitalFormDefaults(hospital?: HospitalRecord): HospitalFormValues {
+  return {
+    address: hospital?.address ?? '',
+    area: hospital?.area ?? '',
+    city: hospital?.city ?? '',
+    displayName: hospital ? getLocationDisplayName(hospital) : '',
+    invoicePrefix: hospital ? (getLocationInvoicePrefix(hospital) ?? '') : '',
+    ipAddress: hospital?.ipAddress ?? '',
+    isActive: hospital?.isActive ?? true,
+    latitude: hospital?.latitude ?? '',
+    locationCode: hospital ? getLocationCode(hospital) : '',
+    longitude: hospital?.longitude ?? '',
+    onlinePaymentOption: hospital?.onlinePaymentOption ?? 'NONE',
+    postalCode: hospital ? (getLocationPostalCode(hospital) ?? '') : '',
+    state: hospital?.state ?? '',
+    title: hospital ? getLocationTitle(hospital) : '',
+    visitingCardAddress: hospital?.visitingCardAddress ?? '',
+  };
+}
+
+function toHospitalInput(values: HospitalFormValues): HospitalInput {
+  const invoicePrefix = optionalValue(values.invoicePrefix);
+  const locationCode = values.locationCode.trim();
+  const title = values.title.trim();
+
+  return {
+    address: values.address.trim(),
+    area: optionalValue(values.area),
+    billPrefix: invoicePrefix,
+    city: values.city.trim(),
+    displayName: values.displayName.trim(),
+    hospitalCode: locationCode,
+    hospitalName: title,
+    invoicePrefix,
+    ipAddress: optionalValue(values.ipAddress),
+    isActive: values.isActive,
+    latitude: optionalValue(values.latitude),
+    locationCode,
+    longitude: optionalValue(values.longitude),
+    onlinePaymentOption: values.onlinePaymentOption,
+    postalCode: optionalValue(values.postalCode),
+    state: values.state.trim(),
+    title,
+    visitingCardAddress: optionalValue(values.visitingCardAddress),
+  };
 }
 
 function isUuid(value: string | undefined): boolean {
   return z.string().uuid().safeParse(value).success;
+}
+
+function formatRestaurantLocationOption(hospital: HospitalRecord): string {
+  return formatLocationOption(hospital);
 }
 
 function hasRequiredText(value: string | undefined): boolean {
@@ -230,11 +412,254 @@ function nullableText(value: string | null | undefined): string {
   return value || 'Not set';
 }
 
+function isRestaurantOnline(restaurant: Restaurant): boolean {
+  return (
+    restaurant.isOnlineOrdersEnabled || restaurant.onlineOrders || restaurant.onlineOrderingEnabled
+  );
+}
+
+function getRestaurantOptionBadges(restaurant: Restaurant): RestaurantOptionBadge[] {
+  const badges: RestaurantOptionBadge[] = [
+    {
+      label: restaurant.isActive ? 'Active' : 'Inactive',
+      variant: restaurant.isActive ? 'success' : 'danger',
+    },
+  ];
+  const enabledOptions: Array<RestaurantOptionBadge & { enabled: boolean }> = [
+    { enabled: isRestaurantOnline(restaurant), label: 'Online', variant: 'info' },
+    {
+      enabled: restaurant.isOpen24x7 || restaurant.open24x7,
+      label: 'Open 24x7',
+      variant: 'info',
+    },
+    {
+      enabled:
+        restaurant.isInRoomDiningEnabled ||
+        restaurant.inRoomDining ||
+        restaurant.inRoomDiningEnabled,
+      label: 'In Room Dining',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isPosOrdersEnabled || restaurant.posOrders,
+      label: 'POS Orders',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isInventoryEnabled || restaurant.inventory,
+      label: 'Inventory',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isVegOnly || restaurant.vegOnly,
+      label: 'Veg Only',
+      variant: 'success',
+    },
+    {
+      enabled: restaurant.isTakeawayEnabled || restaurant.takeaway,
+      label: 'Takeaway',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isDeliveryEnabled || restaurant.delivery,
+      label: 'Delivery',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isHomeDeliveryEnabled || restaurant.homeDelivery,
+      label: 'Home Delivery',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isAtTableDiningEnabled || restaurant.atTableDining,
+      label: 'At Table Dining',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isInCarDiningEnabled || restaurant.inCarDining,
+      label: 'In Car Dining',
+      variant: 'neutral',
+    },
+    {
+      enabled: restaurant.isOffline || restaurant.offline,
+      label: 'Offline',
+      variant: 'warning',
+    },
+  ];
+
+  badges.push(
+    ...enabledOptions
+      .filter((option) => option.enabled)
+      .map(({ enabled: _enabled, ...option }) => option),
+  );
+
+  return badges;
+}
+
+function getRestaurantImageError(file: File): string | undefined {
+  if (!restaurantImageTypes.includes(file.type)) {
+    return 'Choose a JPG, PNG, or WEBP image.';
+  }
+
+  if (file.size > restaurantImageMaxSizeBytes) {
+    return 'Image must be 5MB or smaller.';
+  }
+
+  return undefined;
+}
+
+function isObjectUrl(value: string | undefined): value is string {
+  return Boolean(value?.startsWith('blob:'));
+}
+
+async function uploadRestaurantImage(file: File): Promise<string> {
+  const formData = new FormData();
+
+  formData.append('file', file);
+
+  const response = await fetch('/api/uploads/restaurant-images', {
+    body: formData,
+    method: 'POST',
+  });
+  const body = (await response.json().catch(() => null)) as {
+    message?: string;
+    url?: string;
+  } | null;
+
+  if (!response.ok || !body?.url) {
+    throw new Error(body?.message ?? 'Unable to upload image.');
+  }
+
+  return body.url;
+}
+
+const restaurantFormDefaultValues: RestaurantFormValues = {
+  accountNumber: '',
+  address: '',
+  bankNameBranch: '',
+  email: '',
+  fssaiNumbers: '',
+  gstNumber: '',
+  hospitalId: '',
+  ifscCode: '',
+  isAtTableDiningEnabled: false,
+  isDeliveryEnabled: false,
+  isHomeDeliveryEnabled: false,
+  isInCarDiningEnabled: false,
+  isInRoomDiningEnabled: false,
+  isInventoryEnabled: false,
+  isOffline: false,
+  isOnlineOrdersEnabled: false,
+  isOpen24x7: false,
+  isPosOrdersEnabled: false,
+  isRegisteredInGst: false,
+  isTakeawayEnabled: false,
+  isVegOnly: false,
+  isActive: true,
+  legalName: '',
+  mobile: '',
+  panNumber: '',
+  restaurantName: '',
+  sodexoMid: '',
+  sodexoTid: '',
+  sunBu: '',
+  sunT1: '',
+  sunT2: '',
+  unitNameForQr: '',
+  upiId: '',
+};
+
+function toRestaurantFormDefaults(restaurant?: Restaurant): RestaurantFormValues {
+  if (!restaurant) {
+    return { ...restaurantFormDefaultValues };
+  }
+
+  return {
+    accountNumber: restaurant.accountNumber ?? '',
+    address: restaurant.gstAddress ?? restaurant.address ?? '',
+    bankNameBranch: restaurant.bankNameBranch ?? restaurant.bankName ?? '',
+    email: restaurant.email ?? '',
+    fssaiNumbers: restaurant.fssaiNumbers ?? restaurant.fssaiNumber ?? '',
+    gstNumber: restaurant.gstNumber ?? '',
+    hospitalId: restaurant.hospitalId,
+    ifscCode: restaurant.ifscCode ?? '',
+    isActive: restaurant.isActive,
+    isAtTableDiningEnabled: restaurant.isAtTableDiningEnabled ?? restaurant.atTableDining,
+    isDeliveryEnabled: restaurant.isDeliveryEnabled ?? restaurant.delivery,
+    isHomeDeliveryEnabled: restaurant.isHomeDeliveryEnabled ?? restaurant.homeDelivery,
+    isInCarDiningEnabled: restaurant.isInCarDiningEnabled ?? restaurant.inCarDining,
+    isInRoomDiningEnabled: restaurant.isInRoomDiningEnabled ?? restaurant.inRoomDiningEnabled,
+    isInventoryEnabled: restaurant.isInventoryEnabled ?? restaurant.inventory,
+    isOffline: restaurant.isOffline ?? restaurant.offline,
+    isOnlineOrdersEnabled: isRestaurantOnline(restaurant),
+    isOpen24x7: restaurant.isOpen24x7 ?? restaurant.open24x7,
+    isPosOrdersEnabled: restaurant.isPosOrdersEnabled ?? restaurant.posOrders,
+    isRegisteredInGst: restaurant.isRegisteredInGst,
+    isTakeawayEnabled: restaurant.isTakeawayEnabled ?? restaurant.takeaway,
+    isVegOnly: restaurant.isVegOnly ?? restaurant.vegOnly,
+    legalName: restaurant.legalName ?? '',
+    mobile: restaurant.mobile ?? '',
+    panNumber: restaurant.panNumber ?? '',
+    restaurantName: restaurant.restaurantName,
+    sodexoMid: restaurant.sodexoMid ?? '',
+    sodexoTid: restaurant.sodexoTid ?? '',
+    sunBu: restaurant.sunBu ?? '',
+    sunT1: restaurant.sunT1 ?? '',
+    sunT2: restaurant.sunT2 ?? '',
+    unitNameForQr: restaurant.unitNameForQr ?? restaurant.qrUnitName ?? '',
+    upiId: restaurant.upiId ?? '',
+  };
+}
+
+function toRestaurantInput(
+  values: RestaurantFormValues,
+  imageUrls: { coverImageUrl?: string; thumbnailUrl?: string } = {},
+): RestaurantInput {
+  const address = optionalValue(values.address);
+
+  return {
+    accountNumber: optionalValue(values.accountNumber),
+    address,
+    bankNameBranch: optionalValue(values.bankNameBranch),
+    coverImageUrl: imageUrls.coverImageUrl,
+    email: optionalValue(values.email),
+    fssaiNumbers: optionalValue(values.fssaiNumbers),
+    gstAddress: address,
+    gstNumber: optionalValue(values.gstNumber),
+    hospitalId: values.hospitalId,
+    ifscCode: optionalValue(values.ifscCode),
+    isActive: values.isActive,
+    isAtTableDiningEnabled: values.isAtTableDiningEnabled,
+    isDeliveryEnabled: values.isDeliveryEnabled,
+    isHomeDeliveryEnabled: values.isHomeDeliveryEnabled,
+    isInCarDiningEnabled: values.isInCarDiningEnabled,
+    isInRoomDiningEnabled: values.isInRoomDiningEnabled,
+    isInventoryEnabled: values.isInventoryEnabled,
+    isOffline: values.isOffline,
+    isOnlineOrdersEnabled: values.isOnlineOrdersEnabled,
+    isOpen24x7: values.isOpen24x7,
+    isPosOrdersEnabled: values.isPosOrdersEnabled,
+    isRegisteredInGst: values.isRegisteredInGst,
+    isTakeawayEnabled: values.isTakeawayEnabled,
+    isVegOnly: values.isVegOnly,
+    legalName: optionalValue(values.legalName),
+    mobile: optionalValue(values.mobile),
+    panNumber: optionalValue(values.panNumber),
+    restaurantName: values.restaurantName.trim(),
+    sodexoMid: optionalValue(values.sodexoMid),
+    sodexoTid: optionalValue(values.sodexoTid),
+    sunBu: optionalValue(values.sunBu),
+    sunT1: optionalValue(values.sunT1),
+    sunT2: optionalValue(values.sunT2),
+    thumbnailUrl: imageUrls.thumbnailUrl,
+    unitNameForQr: optionalValue(values.unitNameForQr),
+    upiId: optionalValue(values.upiId),
+  };
+}
+
 function StatusBadge({ isActive }: Readonly<{ isActive: boolean }>) {
   return (
-    <Badge variant={isActive ? 'success' : 'danger'}>
-      {isActive ? 'Active' : 'Inactive'}
-    </Badge>
+    <Badge variant={isActive ? 'success' : 'danger'}>{isActive ? 'Active' : 'Inactive'}</Badge>
   );
 }
 
@@ -242,12 +667,14 @@ function PageHeader({ action, eyebrow, icon: Icon, subtitle, title }: PageHeader
   return (
     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-teal-50 text-teal-700 ring-1 ring-teal-100">
+        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-brand-mint text-brand-teal ring-1 ring-emerald-100">
           <Icon className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-sm font-semibold uppercase tracking-normal text-teal-700">{eyebrow}</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-slate-950">{title}</h1>
+          <p className="text-sm font-semibold uppercase tracking-normal text-brand-teal">
+            {eyebrow}
+          </p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-brand-navy">{title}</h1>
           {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
         </div>
       </div>
@@ -264,9 +691,75 @@ function ToolbarGrid({ children }: Readonly<{ children: ReactNode }>) {
   );
 }
 
+function FlexibleToolbar({ children }: Readonly<{ children: ReactNode }>) {
+  return (
+    <div className="grid gap-3 border-b p-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_150px_170px_170px_170px_150px_130px_auto]">
+      {children}
+    </div>
+  );
+}
+
+function StatusToggleButton({
+  disabled,
+  isActive,
+  onToggle,
+}: Readonly<{
+  disabled: boolean;
+  isActive: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <button
+      aria-checked={isActive}
+      aria-label={isActive ? 'Set inactive' : 'Set active'}
+      className={cn(
+        'inline-flex h-7 w-12 items-center rounded-full border p-1 transition focus:outline-none focus:ring-2 focus:ring-brand-blue/20 disabled:cursor-not-allowed disabled:opacity-60',
+        isActive
+          ? 'border-brand-blue bg-brand-blue'
+          : 'border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800',
+      )}
+      disabled={disabled}
+      onClick={onToggle}
+      role="switch"
+      type="button"
+    >
+      <span
+        className={cn(
+          'h-5 w-5 rounded-full bg-white shadow-sm transition',
+          isActive ? 'translate-x-5' : 'translate-x-0',
+        )}
+      />
+    </button>
+  );
+}
+
+function StatusToggleCell({
+  disabled,
+  isActive,
+  onToggle,
+  showFrozenMessage,
+}: Readonly<{
+  disabled: boolean;
+  isActive: boolean;
+  onToggle: () => void;
+  showFrozenMessage?: boolean;
+}>) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <StatusBadge isActive={isActive} />
+        <StatusToggleButton disabled={disabled} isActive={isActive} onToggle={onToggle} />
+      </div>
+      {showFrozenMessage ? (
+        <p className="max-w-xs text-xs font-medium text-amber-700">{inactiveLocationMessage}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function SearchInput({
   onChange,
-  value
+  value,
 }: Readonly<{
   onChange: (value: string) => void;
   value: string;
@@ -287,7 +780,7 @@ function SearchInput({
 
 function ActiveFilterSelect({
   onChange,
-  value
+  value,
 }: Readonly<{
   onChange: (value: ActiveFilter) => void;
   value: ActiveFilter;
@@ -303,7 +796,7 @@ function ActiveFilterSelect({
 
 function SortOrderSelect({
   onChange,
-  value
+  value,
 }: Readonly<{
   onChange: (value: SortOrder) => void;
   value: SortOrder;
@@ -321,7 +814,7 @@ function QueryState({
   error,
   isError,
   isLoading,
-  label
+  label,
 }: Readonly<{
   colSpan: number;
   error: unknown;
@@ -370,7 +863,7 @@ function PaginationControls({
   onPageChange,
   page,
   total,
-  totalPages
+  totalPages,
 }: PaginationControlsProps) {
   const safeTotalPages = Math.max(totalPages, 1);
 
@@ -408,7 +901,7 @@ function FormShell({
   children,
   icon,
   subtitle,
-  title
+  title,
 }: Readonly<{
   backHref: string;
   children: ReactNode;
@@ -432,17 +925,23 @@ function FormShell({
   );
 }
 
+function SectionHeading({ title }: Readonly<{ title: string }>) {
+  return (
+    <h2 className="text-sm font-semibold uppercase tracking-normal text-brand-teal">{title}</h2>
+  );
+}
+
 function SubmitButton({
   disabled = false,
   isPending,
-  label
+  label,
 }: Readonly<{
   disabled?: boolean;
   isPending: boolean;
   label: string;
 }>) {
   return (
-    <Button className="bg-teal-600 hover:bg-teal-700" disabled={disabled || isPending} type="submit">
+    <Button disabled={disabled || isPending} type="submit">
       {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
       {label}
     </Button>
@@ -451,7 +950,7 @@ function SubmitButton({
 
 function FormWarning({
   isVisible,
-  message
+  message,
 }: Readonly<{
   isVisible: boolean;
   message: string;
@@ -469,7 +968,7 @@ function FormWarning({
 
 function CheckboxLine({
   children,
-  input
+  input,
 }: Readonly<{
   children: ReactNode;
   input: ReactNode;
@@ -482,8 +981,247 @@ function CheckboxLine({
   );
 }
 
+function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={cn(
+        'min-h-28 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-950 shadow-sm shadow-slate-900/5 outline-none transition placeholder:text-slate-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-100',
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+function LocationMasterFormFields({
+  disabled = false,
+  form,
+}: Readonly<{
+  disabled?: boolean;
+  form: UseFormReturn<HospitalFormValues>;
+}>) {
+  const selectedState = form.watch('state');
+  const selectedCity = form.watch('city');
+  const cityOptions = getCitiesForState(selectedState);
+
+  useEffect(() => {
+    if (selectedCity && cityOptions.length > 0 && !cityOptions.includes(selectedCity)) {
+      form.setValue('city', '');
+    }
+  }, [cityOptions, form, selectedCity]);
+
+  return (
+    <div className="grid gap-6">
+      <SectionHeading title="Add/Update Location" />
+      <div className="grid gap-5 md:grid-cols-2">
+        <Field error={form.formState.errors.title?.message} label="Title" name="location-title">
+          <Input disabled={disabled} id="location-title" {...form.register('title')} />
+        </Field>
+        <Field
+          error={form.formState.errors.locationCode?.message}
+          label="Location Code"
+          name="location-code"
+        >
+          <Input
+            disabled={disabled}
+            id="location-code"
+            placeholder="DEL-01"
+            {...form.register('locationCode')}
+          />
+        </Field>
+      </div>
+      <div className="grid gap-5 md:grid-cols-2">
+        <Field
+          error={form.formState.errors.displayName?.message}
+          label="Display Name"
+          name="location-display-name"
+        >
+          <Input disabled={disabled} id="location-display-name" {...form.register('displayName')} />
+        </Field>
+        <Field
+          error={form.formState.errors.invoicePrefix?.message}
+          label="Invoice Prefix"
+          name="location-invoice-prefix"
+        >
+          <Input
+            disabled={disabled}
+            id="location-invoice-prefix"
+            placeholder="eg. MAX-LKO or INV-LKO"
+            {...form.register('invoicePrefix')}
+          />
+        </Field>
+      </div>
+      <Field error={form.formState.errors.address?.message} label="Address" name="location-address">
+        <Textarea disabled={disabled} id="location-address" {...form.register('address')} />
+      </Field>
+      <div className="grid gap-5 md:grid-cols-3">
+        <Field error={form.formState.errors.state?.message} label="State" name="location-state">
+          <Select disabled={disabled} id="location-state" {...form.register('state')}>
+            <option value="">Select state</option>
+            {INDIAN_STATES.map((state) => (
+              <option key={state} value={state}>
+                {state}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field error={form.formState.errors.city?.message} label="City" name="location-city">
+          <Select
+            disabled={disabled || !selectedState}
+            id="location-city"
+            {...form.register('city')}
+          >
+            <option value="">Select city</option>
+            {cityOptions.map((city) => (
+              <option key={city} value={city}>
+                {city}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          error={form.formState.errors.postalCode?.message}
+          label="Postal Code"
+          name="location-postal-code"
+        >
+          <Input
+            disabled={disabled}
+            id="location-postal-code"
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="226010"
+            {...form.register('postalCode')}
+          />
+        </Field>
+      </div>
+      <div className="grid gap-5 md:grid-cols-4">
+        <Field error={form.formState.errors.latitude?.message} label="Latitude" name="latitude">
+          <Input disabled={disabled} id="latitude" {...form.register('latitude')} />
+        </Field>
+        <Field error={form.formState.errors.longitude?.message} label="Longitude" name="longitude">
+          <Input disabled={disabled} id="longitude" {...form.register('longitude')} />
+        </Field>
+        <Field error={form.formState.errors.area?.message} label="Area" name="location-area">
+          <Input
+            disabled={disabled}
+            id="location-area"
+            placeholder="0"
+            {...form.register('area')}
+          />
+        </Field>
+        <Field
+          error={form.formState.errors.ipAddress?.message}
+          label="IP Address"
+          name="location-ip-address"
+        >
+          <Input disabled={disabled} id="location-ip-address" {...form.register('ipAddress')} />
+        </Field>
+      </div>
+      <Field
+        error={form.formState.errors.visitingCardAddress?.message}
+        label="Address for Visiting Card"
+        name="visiting-card-address"
+      >
+        <Textarea
+          disabled={disabled}
+          id="visiting-card-address"
+          {...form.register('visitingCardAddress')}
+        />
+      </Field>
+      <div className="space-y-3">
+        <Label className="block" htmlFor="online-payment-option">
+          Online Payment Option
+        </Label>
+        <div className="grid gap-3 sm:grid-cols-3" id="online-payment-option">
+          {onlinePaymentOptions.map((option) => (
+            <CheckboxLine
+              input={
+                <input
+                  className="h-4 w-4"
+                  disabled={disabled}
+                  type="radio"
+                  value={option.value}
+                  {...form.register('onlinePaymentOption')}
+                />
+              }
+              key={option.value}
+            >
+              {option.label}
+            </CheckboxLine>
+          ))}
+        </div>
+        <FieldError>{form.formState.errors.onlinePaymentOption?.message}</FieldError>
+      </div>
+      <CheckboxLine
+        input={
+          <input
+            className="h-4 w-4"
+            disabled={disabled}
+            type="checkbox"
+            {...form.register('isActive')}
+          />
+        }
+      >
+        Active
+      </CheckboxLine>
+    </div>
+  );
+}
+
+function ImageUploadField({
+  error,
+  id,
+  label,
+  onChange,
+  previewUrl,
+}: Readonly<{
+  error?: string;
+  id: string;
+  label: string;
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+  previewUrl?: string;
+}>) {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-semibold text-slate-800" htmlFor={id}>
+        {label}
+      </label>
+      <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex items-center gap-3">
+          <Button asChild variant="outline">
+            <label className="cursor-pointer" htmlFor={id}>
+              Choose
+            </label>
+          </Button>
+          <span className="text-xs text-slate-500">JPG, PNG, or WEBP. Max 5MB.</span>
+        </div>
+        <input
+          accept="image/jpeg,image/png,image/webp"
+          className="sr-only"
+          id={id}
+          onChange={onChange}
+          type="file"
+        />
+        {previewUrl ? (
+          <div
+            aria-label={`${label} preview`}
+            className="h-32 w-full rounded-md border border-slate-100 bg-cover bg-center"
+            role="img"
+            style={{ backgroundImage: `url(${previewUrl})` }}
+          />
+        ) : (
+          <div className="flex h-32 items-center justify-center rounded-md border border-dashed border-slate-200 bg-slate-50 text-sm text-slate-500">
+            No image selected
+          </div>
+        )}
+      </div>
+      {error ? <p className="text-sm font-medium text-red-600">{error}</p> : null}
+    </div>
+  );
+}
+
 function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt: string }>({
-  config
+  config,
 }: Readonly<{ config: EntityListConfig<TItem> }>) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -499,12 +1237,12 @@ function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt
         page,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       return response.data;
     },
-    queryKey: [config.entityKey, { activeFilter, page, search, sortBy, sortOrder }]
+    queryKey: [config.entityKey, { activeFilter, page, search, sortBy, sortOrder }],
   });
 
   const items = entityQuery.data?.items ?? [];
@@ -512,7 +1250,7 @@ function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt
     limit: listLimit,
     page,
     total: 0,
-    totalPages: 1
+    totalPages: 1,
   };
 
   return (
@@ -522,7 +1260,7 @@ function EntityListPage<TItem extends { id: string; isActive: boolean; updatedAt
           <Button asChild className="bg-teal-600 hover:bg-teal-700">
             <Link href={config.createHref}>
               <Plus className="h-4 w-4" />
-              Create
+              {config.createLabel ?? 'Create'}
             </Link>
           </Button>
         }
@@ -630,49 +1368,13 @@ function useHospitalOptions() {
       const response = await organizationApi.listHospitals({
         isActive: true,
         limit: 100,
-        sortBy: 'hospitalName',
-        sortOrder: 'asc'
+        sortBy: 'title',
+        sortOrder: 'asc',
       });
 
       return response.data.items;
     },
-    queryKey: ['hospital-options']
-  });
-}
-
-function useStoreOptions(hospitalId?: string) {
-  return useQuery<StoreRecord[]>({
-    enabled: Boolean(hospitalId),
-    queryFn: async () => {
-      const response = await organizationApi.listStores({
-        hospitalId,
-        isActive: true,
-        limit: 100,
-        sortBy: 'storeName',
-        sortOrder: 'asc'
-      });
-
-      return response.data.items;
-    },
-    queryKey: ['store-options', hospitalId]
-  });
-}
-
-function useKitchenOptions(hospitalId?: string) {
-  return useQuery<Kitchen[]>({
-    enabled: Boolean(hospitalId),
-    queryFn: async () => {
-      const response = await organizationApi.listKitchens({
-        hospitalId,
-        isActive: true,
-        limit: 100,
-        sortBy: 'kitchenName',
-        sortOrder: 'asc'
-      });
-
-      return response.data.items;
-    },
-    queryKey: ['kitchen-options', hospitalId]
+    queryKey: ['hospital-options'],
   });
 }
 
@@ -685,100 +1387,302 @@ function useRestaurantOptions(hospitalId?: string) {
         isActive: true,
         limit: 100,
         sortBy: 'restaurantName',
-        sortOrder: 'asc'
+        sortOrder: 'asc',
       });
 
       return response.data.items;
     },
-    queryKey: ['restaurant-options', hospitalId]
+    queryKey: ['restaurant-options', hospitalId],
   });
 }
 
-function useEntityTotal(queryKey: string, queryFn: () => Promise<ApiResponse<ApiList<unknown>>>) {
+function useEntityTotal(
+  queryKey: string | readonly unknown[],
+  queryFn: () => Promise<ApiResponse<ApiList<unknown>>>,
+) {
+  const queryKeyParts = typeof queryKey === 'string' ? [queryKey] : queryKey;
+
   return useQuery({
     queryFn: async () => {
       const response = await queryFn();
 
       return response.data.meta.total;
     },
-    queryKey: ['dashboard', queryKey]
+    queryKey: ['dashboard', ...queryKeyParts],
   });
 }
 
 export function HospitalsPageClient() {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [stateFilter, setStateFilter] = useState('');
+  const [cityFilter, setCityFilter] = useState('');
+  const [onlinePaymentFilter, setOnlinePaymentFilter] = useState<OnlinePaymentFilter>('');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const cityOptions = getCitiesForState(stateFilter);
+
+  useEffect(() => {
+    if (cityFilter && cityOptions.length > 0 && !cityOptions.includes(cityFilter)) {
+      setCityFilter('');
+    }
+  }, [cityFilter, cityOptions]);
+
+  const locationsQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listHospitals({
+        city: cityFilter || undefined,
+        isActive: activeFilterToBoolean(activeFilter),
+        limit: listLimit,
+        onlinePaymentOption: onlinePaymentFilter || undefined,
+        page,
+        search,
+        sortBy,
+        sortOrder,
+        state: stateFilter || undefined,
+      });
+
+      return response.data;
+    },
+    queryKey: [
+      'hospitals',
+      {
+        activeFilter,
+        cityFilter,
+        onlinePaymentFilter,
+        page,
+        search,
+        sortBy,
+        sortOrder,
+        stateFilter,
+      },
+    ],
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      organizationApi.updateHospital(id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Location status was not updated',
+        variant: 'error',
+      });
+    },
+    onSettled() {
+      setStatusUpdatingId(null);
+    },
+    onSuccess(_, variables) {
+      void queryClient.invalidateQueries({ queryKey: ['hospitals'] });
+      void queryClient.invalidateQueries({ queryKey: ['hospital-options'] });
+      showToast({
+        title: variables.isActive ? 'Location activated' : 'Location deactivated',
+        variant: 'success',
+      });
+    },
+  });
+
+  const items = locationsQuery.data?.items ?? [];
+  const meta = locationsQuery.data?.meta ?? {
+    limit: listLimit,
+    page,
+    total: 0,
+    totalPages: 1,
+  };
+
+  function toggleLocationStatus(location: HospitalRecord) {
+    const nextIsActive = !location.isActive;
+
+    if (!nextIsActive && !window.confirm(freezeServicesMessage)) {
+      return;
+    }
+
+    setStatusUpdatingId(location.id);
+    statusMutation.mutate({ id: location.id, isActive: nextIsActive });
+  }
+
   return (
-    <EntityListPage<HospitalRecord>
-      config={{
-        columns: [
-          {
-            className: 'w-[28%]',
-            header: 'Hospital',
-            render: (hospital) => (
-              <div>
-                <p className="font-medium text-slate-950">{hospital.hospitalName}</p>
-                <p className="text-xs text-slate-500">{hospital.hospitalCode}</p>
-              </div>
-            )
-          },
-          {
-            className: 'w-[22%]',
-            header: 'City',
-            render: (hospital) => nullableText(hospital.city)
-          },
-          {
-            className: 'w-[18%]',
-            header: 'State',
-            render: (hospital) => nullableText(hospital.state)
-          },
-          {
-            className: 'w-[18%]',
-            header: 'Bill Prefix',
-            render: (hospital) => nullableText(hospital.billPrefix)
-          },
-          {
-            className: 'w-[24%]',
-            header: 'Actions',
-            render: (hospital) => (
-              <div className="flex flex-wrap gap-2">
-                <Button asChild size="sm" variant="outline">
-                  <Link href={`/masters/hospitals/${hospital.id}/locations#details`}>
-                    <Eye className="h-4 w-4" />
-                    View
-                  </Link>
-                </Button>
-                <Button asChild className="bg-teal-600 hover:bg-teal-700" size="sm">
-                  <Link href={`/masters/hospitals/${hospital.id}/locations#locations`}>
-                    <MapPin className="h-4 w-4" />
-                    Locations
-                  </Link>
-                </Button>
-              </div>
-            )
-          }
-        ],
-        createHref: '/masters/hospitals/new',
-        emptyLabel: 'hospitals',
-        entityKey: 'hospitals',
-        icon: Hospital,
-        list: (query) => organizationApi.listHospitals(query),
-        sortOptions: [
-          { label: 'Created date', value: 'createdAt' },
-          { label: 'Hospital name', value: 'hospitalName' },
-          { label: 'Hospital code', value: 'hospitalCode' },
-          { label: 'City', value: 'city' },
-          { label: 'State', value: 'state' },
-          { label: 'Status', value: 'isActive' }
-        ],
-        subtitle: 'Manage hospitals using the AAHAR operating hierarchy.',
-        title: 'Hospitals'
-      }}
-    />
+    <section className="space-y-6">
+      <PageHeader
+        action={
+          <Button asChild className="bg-teal-600 hover:bg-teal-700">
+            <Link href="/masters/locations/new">
+              <Plus className="h-4 w-4" />
+              Add Location
+            </Link>
+          </Button>
+        }
+        eyebrow="Masters"
+        icon={MapPin}
+        subtitle="Manage operating locations for food and cafeteria services."
+        title="Locations"
+      />
+      <Panel>
+        <FlexibleToolbar>
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <ActiveFilterSelect
+            onChange={(value) => {
+              setActiveFilter(value);
+              setPage(1);
+            }}
+            value={activeFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setStateFilter(event.target.value);
+              setPage(1);
+            }}
+            value={stateFilter}
+          >
+            <option value="">All states</option>
+            {INDIAN_STATES.map((state) => (
+              <option key={state} value={state}>
+                {state}
+              </option>
+            ))}
+          </Select>
+          <Select
+            disabled={!stateFilter}
+            onChange={(event) => {
+              setCityFilter(event.target.value);
+              setPage(1);
+            }}
+            value={cityFilter}
+          >
+            <option value="">All cities</option>
+            {cityOptions.map((city) => (
+              <option key={city} value={city}>
+                {city}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setOnlinePaymentFilter(event.target.value as OnlinePaymentFilter);
+              setPage(1);
+            }}
+            value={onlinePaymentFilter}
+          >
+            <option value="">All payment options</option>
+            {onlinePaymentOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="createdAt">Created date</option>
+            <option value="updatedAt">Updated date</option>
+            <option value="title">Name</option>
+          </Select>
+          <SortOrderSelect
+            onChange={(value) => {
+              setSortOrder(value);
+              setPage(1);
+            }}
+            value={sortOrder}
+          />
+          <Button onClick={() => void locationsQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </FlexibleToolbar>
+        <div className="overflow-x-auto">
+          <table className="min-w-[1180px] table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[18%] px-4 py-3">Title</th>
+                <th className="w-[13%] px-4 py-3">Location Code</th>
+                <th className="w-[17%] px-4 py-3">Display Name</th>
+                <th className="w-[12%] px-4 py-3">State</th>
+                <th className="w-[12%] px-4 py-3">City</th>
+                <th className="w-[10%] px-4 py-3">Postal Code</th>
+                <th className="w-[12%] px-4 py-3">Online Payment</th>
+                <th className="w-[18%] px-4 py-3">Status</th>
+                <th className="w-[13%] px-4 py-3">Updated</th>
+                <th className="w-[12%] px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {items.length > 0 ? (
+                items.map((location) => (
+                  <tr className="hover:bg-slate-50" key={location.id}>
+                    <td className="px-4 py-4">
+                      <div>
+                        <p className="font-medium text-slate-950">{getLocationTitle(location)}</p>
+                        <p className="line-clamp-1 text-xs text-slate-500">
+                          {nullableText(location.address)}
+                        </p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{getLocationCode(location)}</td>
+                    <td className="px-4 py-4 text-slate-600">{getLocationDisplayName(location)}</td>
+                    <td className="px-4 py-4 text-slate-600">{nullableText(location.state)}</td>
+                    <td className="px-4 py-4 text-slate-600">{nullableText(location.city)}</td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {nullableText(getLocationPostalCode(location))}
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">{location.onlinePaymentOption}</td>
+                    <td className="px-4 py-4">
+                      <StatusToggleCell
+                        disabled={statusMutation.isPending && statusUpdatingId === location.id}
+                        isActive={location.isActive}
+                        onToggle={() => toggleLocationStatus(location)}
+                        showFrozenMessage={!location.isActive}
+                      />
+                    </td>
+                    <td className="px-4 py-4 text-slate-500">{formatDate(location.updatedAt)}</td>
+                    <td className="px-4 py-4">
+                      <Button asChild size="sm" variant="outline">
+                        <Link href={`/masters/hospitals/${location.id}/locations#details`}>
+                          <Eye className="h-4 w-4" />
+                          View/Edit
+                        </Link>
+                      </Button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={10}
+                  error={locationsQuery.error}
+                  isError={locationsQuery.isError}
+                  isLoading={locationsQuery.isLoading}
+                  label="locations"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
   );
 }
 
-export function HospitalLocationsPageClient({
-  hospitalId
-}: Readonly<{ hospitalId: string }>) {
+export function HospitalLocationsPageClient({ hospitalId }: Readonly<{ hospitalId: string }>) {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
@@ -788,6 +1692,9 @@ export function HospitalLocationsPageClient({
   const queryClient = useQueryClient();
   const { showToast } = useToast();
 
+  const locationMasterForm = useForm<HospitalFormValues>({
+    defaultValues: toHospitalFormDefaults(),
+  });
   const form = useForm<LocationFormValues>({
     defaultValues: {
       address: '',
@@ -796,8 +1703,8 @@ export function HospitalLocationsPageClient({
       floor: '',
       hospitalId,
       isActive: true,
-      locationName: ''
-    }
+      locationName: '',
+    },
   });
 
   const hospitalQuery = useQuery({
@@ -806,8 +1713,14 @@ export function HospitalLocationsPageClient({
 
       return response.data;
     },
-    queryKey: ['hospital', hospitalId]
+    queryKey: ['hospital', hospitalId],
   });
+
+  useEffect(() => {
+    if (hospitalQuery.data) {
+      locationMasterForm.reset(toHospitalFormDefaults(hospitalQuery.data));
+    }
+  }, [hospitalQuery.data, locationMasterForm]);
 
   const locationsQuery = useQuery({
     queryFn: async () => {
@@ -818,12 +1731,12 @@ export function HospitalLocationsPageClient({
         page,
         search,
         sortBy,
-        sortOrder
+        sortOrder,
       });
 
       return response.data;
     },
-    queryKey: ['hospital-locations', hospitalId, { activeFilter, page, search, sortBy, sortOrder }]
+    queryKey: ['hospital-locations', hospitalId, { activeFilter, page, search, sortBy, sortOrder }],
   });
 
   const saveLocationMutation = useMutation({
@@ -835,7 +1748,7 @@ export function HospitalLocationsPageClient({
       showToast({
         description: getApiErrorMessage(error),
         title: editingLocation ? 'Location was not updated' : 'Location was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -844,7 +1757,7 @@ export function HospitalLocationsPageClient({
       void queryClient.invalidateQueries({ queryKey: ['locations'] });
       showToast({
         title: editingLocation ? 'Location updated' : 'Location created',
-        variant: 'success'
+        variant: 'success',
       });
       setEditingLocation(null);
       form.reset({
@@ -854,9 +1767,30 @@ export function HospitalLocationsPageClient({
         floor: '',
         hospitalId,
         isActive: true,
-        locationName: ''
+        locationName: '',
       });
-    }
+    },
+  });
+
+  const updateLocationMasterMutation = useMutation({
+    mutationFn: (body: HospitalInput) => organizationApi.updateHospital(hospitalId, body),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Location was not updated',
+        variant: 'error',
+      });
+    },
+    onSuccess(response) {
+      void queryClient.invalidateQueries({ queryKey: ['hospital', hospitalId] });
+      void queryClient.invalidateQueries({ queryKey: ['hospitals'] });
+      void queryClient.invalidateQueries({ queryKey: ['hospital-options'] });
+      locationMasterForm.reset(toHospitalFormDefaults(response.data));
+      showToast({
+        title: 'Location updated',
+        variant: 'success',
+      });
+    },
   });
 
   const deleteLocationMutation = useMutation({
@@ -865,7 +1799,7 @@ export function HospitalLocationsPageClient({
       showToast({
         description: getApiErrorMessage(error),
         title: 'Location was not deleted',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -874,9 +1808,9 @@ export function HospitalLocationsPageClient({
       void queryClient.invalidateQueries({ queryKey: ['locations'] });
       showToast({
         title: 'Location deleted',
-        variant: 'success'
+        variant: 'success',
       });
-    }
+    },
   });
 
   const items = locationsQuery.data?.items ?? [];
@@ -884,14 +1818,25 @@ export function HospitalLocationsPageClient({
     limit: listLimit,
     page,
     total: 0,
-    totalPages: 1
+    totalPages: 1,
   };
   const hospital = hospitalQuery.data;
+
+  const handleLocationMasterSubmit = locationMasterForm.handleSubmit((values) => {
+    const parsed = hospitalSchema.safeParse(values);
+
+    if (!parsed.success) {
+      applyValidationErrors(locationMasterForm, parsed.error);
+      return;
+    }
+
+    updateLocationMasterMutation.mutate(toHospitalInput(parsed.data));
+  });
 
   const handleSubmit = form.handleSubmit((values) => {
     const parsed = locationSchema.safeParse({
       ...values,
-      hospitalId
+      hospitalId,
     });
 
     if (!parsed.success) {
@@ -906,7 +1851,7 @@ export function HospitalLocationsPageClient({
       floor: optionalValue(parsed.data.floor),
       hospitalId,
       isActive: parsed.data.isActive,
-      locationName: parsed.data.locationName
+      locationName: parsed.data.locationName,
     });
   });
 
@@ -919,7 +1864,7 @@ export function HospitalLocationsPageClient({
       floor: location.floor ?? '',
       hospitalId,
       isActive: location.isActive,
-      locationName: location.locationName
+      locationName: location.locationName,
     });
   }
 
@@ -932,7 +1877,7 @@ export function HospitalLocationsPageClient({
       floor: '',
       hospitalId,
       isActive: true,
-      locationName: ''
+      locationName: '',
     });
   }
 
@@ -947,28 +1892,28 @@ export function HospitalLocationsPageClient({
   return (
     <section className="space-y-6">
       <Button asChild variant="ghost">
-        <Link href="/masters/hospitals">
+        <Link href="/masters/locations">
           <ArrowLeft className="h-4 w-4" />
-          Back to Hospitals
+          Back to Locations
         </Link>
       </Button>
       <PageHeader
-        eyebrow="Hospital Management"
-        icon={Hospital}
-        subtitle="View hospital details and manage service locations."
-        title={hospital?.hospitalName ?? 'Hospital'}
+        eyebrow="Location Master"
+        icon={MapPin}
+        subtitle="View and update operating location details."
+        title={hospital ? getLocationTitle(hospital) : 'Location'}
       />
       <div className="flex flex-wrap gap-2">
         <Button asChild size="sm" variant="outline">
           <a href="#details">
             <Eye className="h-4 w-4" />
-            Hospital Details
+            Location Details
           </a>
         </Button>
         <Button asChild className="bg-teal-600 hover:bg-teal-700" size="sm">
           <a href="#locations">
             <MapPin className="h-4 w-4" />
-            Locations
+            Service Areas
           </a>
         </Button>
       </div>
@@ -977,61 +1922,49 @@ export function HospitalLocationsPageClient({
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold tracking-normal text-slate-950">
-              Hospital Details
+              Add/Update Location
             </h2>
-            <p className="text-sm text-slate-500">Top-level setup for this hospital.</p>
+            <p className="text-sm text-slate-500">
+              Creating a Location will auto-create Main Store and Main Kitchen.
+            </p>
           </div>
           {hospital ? <StatusBadge isActive={hospital.isActive} /> : null}
         </div>
         {hospitalQuery.isLoading ? (
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3">
             <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
+            <Skeleton className="h-64" />
           </div>
         ) : hospitalQuery.isError ? (
           <p className="text-sm font-medium text-red-600">
             {getApiErrorMessage(hospitalQuery.error)}
           </p>
         ) : hospital ? (
-          <div className="grid gap-4 text-sm md:grid-cols-3">
-            <div>
-              <p className="font-medium text-slate-500">Code</p>
-              <p className="mt-1 font-semibold text-slate-950">{hospital.hospitalCode}</p>
+          <form
+            className="grid gap-5"
+            onSubmit={(event) => {
+              void handleLocationMasterSubmit(event);
+            }}
+          >
+            <LocationMasterFormFields
+              disabled={updateLocationMasterMutation.isPending}
+              form={locationMasterForm}
+            />
+            <div className="flex justify-end">
+              <SubmitButton
+                isPending={updateLocationMasterMutation.isPending}
+                label="Update Location"
+              />
             </div>
-            <div>
-              <p className="font-medium text-slate-500">City</p>
-              <p className="mt-1 font-semibold text-slate-950">{nullableText(hospital.city)}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">State</p>
-              <p className="mt-1 font-semibold text-slate-950">{nullableText(hospital.state)}</p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Bill Prefix</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {nullableText(hospital.billPrefix)}
-              </p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">GST</p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {hospital.gstApplicable ? 'Applicable' : 'Not applicable'}
-              </p>
-            </div>
-            <div>
-              <p className="font-medium text-slate-500">Address</p>
-              <p className="mt-1 font-semibold text-slate-950">{nullableText(hospital.address)}</p>
-            </div>
-          </div>
+          </form>
         ) : null}
       </Panel>
 
       <Panel className="p-5" id="locations">
         <div className="mb-5">
-          <h2 className="text-lg font-semibold tracking-normal text-slate-950">Locations</h2>
+          <h2 className="text-lg font-semibold tracking-normal text-slate-950">Service Areas</h2>
           <p className="text-sm text-slate-500">
-            Add floors, buildings, and service areas for this hospital.
+            Add floors, buildings, and service areas under this location.
           </p>
         </div>
         <form
@@ -1041,26 +1974,48 @@ export function HospitalLocationsPageClient({
           }}
         >
           <div className="grid gap-5 md:grid-cols-2">
-            <Field error={form.formState.errors.locationName?.message} label="Location Name" name="hospital-location-name">
+            <Field
+              error={form.formState.errors.locationName?.message}
+              label="Location Name"
+              name="hospital-location-name"
+            >
               <Input id="hospital-location-name" {...form.register('locationName')} />
             </Field>
-            <Field error={form.formState.errors.building?.message} label="Building" name="hospital-location-building">
+            <Field
+              error={form.formState.errors.building?.message}
+              label="Building"
+              name="hospital-location-building"
+            >
               <Input id="hospital-location-building" {...form.register('building')} />
             </Field>
           </div>
           <div className="grid gap-5 md:grid-cols-3">
-            <Field error={form.formState.errors.floor?.message} label="Floor" name="hospital-location-floor">
+            <Field
+              error={form.formState.errors.floor?.message}
+              label="Floor"
+              name="hospital-location-floor"
+            >
               <Input id="hospital-location-floor" {...form.register('floor')} />
             </Field>
-            <Field error={form.formState.errors.area?.message} label="Area" name="hospital-location-area">
+            <Field
+              error={form.formState.errors.area?.message}
+              label="Area"
+              name="hospital-location-area"
+            >
               <Input id="hospital-location-area" {...form.register('area')} />
             </Field>
-            <Field error={form.formState.errors.address?.message} label="Address" name="hospital-location-address">
+            <Field
+              error={form.formState.errors.address?.message}
+              label="Address"
+              name="hospital-location-address"
+            >
               <Input id="hospital-location-address" {...form.register('address')} />
             </Field>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+            <CheckboxLine
+              input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+            >
               Active
             </CheckboxLine>
             <div className="flex gap-2">
@@ -1213,23 +2168,23 @@ export function LocationsPageClient() {
                 <p className="font-medium text-slate-950">{location.locationName}</p>
                 <p className="text-xs text-slate-500">{nullableText(location.area)}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[24%]',
-            header: 'Hospital',
-            render: (location) => location.hospital.hospitalName
+            header: 'Location',
+            render: (location) => getLocationDisplayName(location.hospital),
           },
           {
             className: 'w-[18%]',
             header: 'Building',
-            render: (location) => nullableText(location.building)
+            render: (location) => nullableText(location.building),
           },
           {
             className: 'w-[16%]',
             header: 'Floor',
-            render: (location) => nullableText(location.floor)
-          }
+            render: (location) => nullableText(location.floor),
+          },
         ],
         createHref: '/masters/locations/new',
         emptyLabel: 'locations',
@@ -1242,166 +2197,808 @@ export function LocationsPageClient() {
           { label: 'Building', value: 'building' },
           { label: 'Floor', value: 'floor' },
           { label: 'Area', value: 'area' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
-        subtitle: 'Manage hospital campus, floor, and service locations.',
-        title: 'Locations'
+        subtitle: 'Manage campus, floor, and service areas.',
+        title: 'Service Areas',
       }}
     />
   );
 }
 
 export function StoresPageClient() {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const { scopedHospitalId } = useLocationContext();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [hospitalFilter, setHospitalFilter] = useState(scopedHospitalId ?? '');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const hospitalOptionsQuery = useHospitalOptions();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setPage(1);
+  }, [scopedHospitalId]);
+
+  const storesQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listStores({
+        hospitalId: hospitalFilter || undefined,
+        isActive: activeFilterToBoolean(activeFilter),
+        limit: listLimit,
+        page,
+        search,
+        sortBy,
+        sortOrder,
+      });
+
+      return response.data;
+    },
+    queryKey: ['stores', { activeFilter, hospitalFilter, page, search, sortBy, sortOrder }],
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      organizationApi.updateStore(id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Store status was not updated',
+        variant: 'error',
+      });
+    },
+    onSettled() {
+      setStatusUpdatingId(null);
+    },
+    onSuccess(_, variables) {
+      void queryClient.invalidateQueries({ queryKey: ['stores'] });
+      void queryClient.invalidateQueries({ queryKey: ['store-options'] });
+      showToast({
+        title: variables.isActive ? 'Store activated' : 'Store deactivated',
+        variant: 'success',
+      });
+    },
+  });
+
+  const items = storesQuery.data?.items ?? [];
+  const meta = storesQuery.data?.meta ?? {
+    limit: listLimit,
+    page,
+    total: 0,
+    totalPages: 1,
+  };
+
+  function toggleStoreStatus(store: StoreRecord) {
+    const nextIsActive = !store.isActive;
+
+    if (nextIsActive && !store.hospital.isActive) {
+      showToast({
+        description: inactiveLocationMessage,
+        title: 'Location is inactive',
+        variant: 'info',
+      });
+      return;
+    }
+
+    if (!nextIsActive && !window.confirm(freezeServicesMessage)) {
+      return;
+    }
+
+    setStatusUpdatingId(store.id);
+    statusMutation.mutate({ id: store.id, isActive: nextIsActive });
+  }
+
   return (
-    <EntityListPage<StoreRecord>
-      config={{
-        columns: [
-          {
-            className: 'w-[26%]',
-            header: 'Store/F&B',
-            render: (store) => (
-              <div>
-                <p className="font-medium text-slate-950">{store.storeName}</p>
-                <p className="text-xs text-slate-500">{store.storeCode}</p>
-              </div>
-            )
-          },
-          {
-            className: 'w-[22%]',
-            header: 'Hospital',
-            render: (store) => store.hospital.hospitalName
-          },
-          {
-            className: 'w-[20%]',
-            header: 'Location',
-            render: (store) => store.location?.locationName ?? 'Not set'
-          },
-          {
-            className: 'w-[18%]',
-            header: 'Type',
-            render: (store) => nullableText(store.storeType)
-          }
-        ],
-        createHref: '/masters/stores/new',
-        emptyLabel: 'stores',
-        entityKey: 'stores',
-        icon: Store,
-        list: (query) => organizationApi.listStores(query),
-        sortOptions: [
-          { label: 'Created date', value: 'createdAt' },
-          { label: 'Store name', value: 'storeName' },
-          { label: 'Store code', value: 'storeCode' },
-          { label: 'Store type', value: 'storeType' },
-          { label: 'Status', value: 'isActive' }
-        ],
-        subtitle: 'Manage F&B stores linked to hospitals and locations.',
-        title: 'Stores'
-      }}
-    />
+    <section className="space-y-6">
+      <PageHeader
+        action={
+          <Button asChild className="bg-teal-600 hover:bg-teal-700">
+            <Link href="/masters/stores/new">
+              <Plus className="h-4 w-4" />
+              Create
+            </Link>
+          </Button>
+        }
+        eyebrow="Organization"
+        icon={Store}
+        subtitle="Manage F&B stores linked to locations."
+        title="Stores"
+      />
+      <Panel>
+        <ToolbarGrid>
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <ActiveFilterSelect
+            onChange={(value) => {
+              setActiveFilter(value);
+              setPage(1);
+            }}
+            value={activeFilter}
+          />
+          <Select
+            disabled={hospitalOptionsQuery.isLoading || Boolean(scopedHospitalId)}
+            onChange={(event) => {
+              setHospitalFilter(event.target.value);
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          >
+            <option value="">All locations</option>
+            {hospitalOptionsQuery.data?.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {formatLocationOption(hospital)}
+              </option>
+            ))}
+          </Select>
+          <SortOrderSelect
+            onChange={(value) => {
+              setSortOrder(value);
+              setPage(1);
+            }}
+            value={sortOrder}
+          />
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="createdAt">Created date</option>
+            <option value="updatedAt">Updated date</option>
+            <option value="storeName">Name</option>
+          </Select>
+        </ToolbarGrid>
+        <div className="flex justify-end border-b px-4 py-3">
+          <Button onClick={() => void storesQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[28%] px-4 py-3">Store/F&B</th>
+                <th className="w-[26%] px-4 py-3">Location</th>
+                <th className="w-[22%] px-4 py-3">Status</th>
+                <th className="w-[16%] px-4 py-3">Updated</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {items.length > 0 ? (
+                items.map((store) => (
+                  <tr className="hover:bg-slate-50" key={store.id}>
+                    <td className="px-4 py-4">
+                      <div>
+                        <p className="font-medium text-slate-950">{store.storeName}</p>
+                        <p className="text-xs text-slate-500">{store.storeCode}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {getLocationDisplayName(store.hospital)}
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleCell
+                        disabled={statusMutation.isPending && statusUpdatingId === store.id}
+                        isActive={store.isActive}
+                        onToggle={() => toggleStoreStatus(store)}
+                        showFrozenMessage={!store.hospital.isActive}
+                      />
+                    </td>
+                    <td className="px-4 py-4 text-slate-500">{formatDate(store.updatedAt)}</td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={4}
+                  error={storesQuery.error}
+                  isError={storesQuery.isError}
+                  isLoading={storesQuery.isLoading}
+                  label="stores"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
   );
 }
 
 export function KitchensPageClient() {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const { scopedHospitalId } = useLocationContext();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [hospitalFilter, setHospitalFilter] = useState(scopedHospitalId ?? '');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const hospitalOptionsQuery = useHospitalOptions();
+
+  useEffect(() => {
+    setHospitalFilter(scopedHospitalId ?? '');
+    setPage(1);
+  }, [scopedHospitalId]);
+
+  const kitchensQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listKitchens({
+        hospitalId: hospitalFilter || undefined,
+        isActive: activeFilterToBoolean(activeFilter),
+        limit: listLimit,
+        page,
+        search,
+        sortBy,
+        sortOrder,
+      });
+
+      return response.data;
+    },
+    queryKey: ['kitchens', { activeFilter, hospitalFilter, page, search, sortBy, sortOrder }],
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
+      organizationApi.updateKitchen(id, { isActive }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Kitchen status was not updated',
+        variant: 'error',
+      });
+    },
+    onSettled() {
+      setStatusUpdatingId(null);
+    },
+    onSuccess(_, variables) {
+      void queryClient.invalidateQueries({ queryKey: ['kitchens'] });
+      void queryClient.invalidateQueries({ queryKey: ['kitchen-options'] });
+      showToast({
+        title: variables.isActive ? 'Kitchen activated' : 'Kitchen deactivated',
+        variant: 'success',
+      });
+    },
+  });
+
+  const items = kitchensQuery.data?.items ?? [];
+  const meta = kitchensQuery.data?.meta ?? {
+    limit: listLimit,
+    page,
+    total: 0,
+    totalPages: 1,
+  };
+
+  function toggleKitchenStatus(kitchen: Kitchen) {
+    const nextIsActive = !kitchen.isActive;
+
+    if (nextIsActive && !kitchen.hospital.isActive) {
+      showToast({
+        description: inactiveLocationMessage,
+        title: 'Location is inactive',
+        variant: 'info',
+      });
+      return;
+    }
+
+    if (!nextIsActive && !window.confirm(freezeServicesMessage)) {
+      return;
+    }
+
+    setStatusUpdatingId(kitchen.id);
+    statusMutation.mutate({ id: kitchen.id, isActive: nextIsActive });
+  }
+
   return (
-    <EntityListPage<Kitchen>
-      config={{
-        columns: [
-          {
-            className: 'w-[26%]',
-            header: 'Kitchen',
-            render: (kitchen) => (
-              <div>
-                <p className="font-medium text-slate-950">{kitchen.kitchenName}</p>
-                <p className="text-xs text-slate-500">{kitchen.kitchenCode}</p>
-              </div>
-            )
-          },
-          {
-            className: 'w-[22%]',
-            header: 'Hospital',
-            render: (kitchen) => kitchen.hospital.hospitalName
-          },
-          {
-            className: 'w-[20%]',
-            header: 'Location',
-            render: (kitchen) => kitchen.location?.locationName ?? 'Not set'
-          },
-          {
-            className: 'w-[18%]',
-            header: 'Hours',
-            render: (kitchen) =>
-              kitchen.openingTime || kitchen.closingTime
-                ? `${nullableText(kitchen.openingTime)} to ${nullableText(kitchen.closingTime)}`
-                : 'Not set'
-          }
-        ],
-        createHref: '/masters/kitchens/new',
-        emptyLabel: 'kitchens',
-        entityKey: 'kitchens',
-        icon: ChefHat,
-        list: (query) => organizationApi.listKitchens(query),
-        sortOptions: [
-          { label: 'Created date', value: 'createdAt' },
-          { label: 'Kitchen name', value: 'kitchenName' },
-          { label: 'Kitchen code', value: 'kitchenCode' },
-          { label: 'Status', value: 'isActive' }
-        ],
-        subtitle: 'Manage production kitchens for hospital food service.',
-        title: 'Kitchens'
-      }}
-    />
+    <section className="space-y-6">
+      <PageHeader
+        action={
+          <Button asChild className="bg-teal-600 hover:bg-teal-700">
+            <Link href="/masters/kitchens/new">
+              <Plus className="h-4 w-4" />
+              Create
+            </Link>
+          </Button>
+        }
+        eyebrow="Organization"
+        icon={ChefHat}
+        subtitle="Manage production kitchens for location food service."
+        title="Kitchens"
+      />
+      <Panel>
+        <ToolbarGrid>
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <ActiveFilterSelect
+            onChange={(value) => {
+              setActiveFilter(value);
+              setPage(1);
+            }}
+            value={activeFilter}
+          />
+          <Select
+            disabled={hospitalOptionsQuery.isLoading || Boolean(scopedHospitalId)}
+            onChange={(event) => {
+              setHospitalFilter(event.target.value);
+              setPage(1);
+            }}
+            value={hospitalFilter}
+          >
+            <option value="">All locations</option>
+            {hospitalOptionsQuery.data?.map((hospital) => (
+              <option key={hospital.id} value={hospital.id}>
+                {formatLocationOption(hospital)}
+              </option>
+            ))}
+          </Select>
+          <SortOrderSelect
+            onChange={(value) => {
+              setSortOrder(value);
+              setPage(1);
+            }}
+            value={sortOrder}
+          />
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            <option value="createdAt">Created date</option>
+            <option value="updatedAt">Updated date</option>
+            <option value="kitchenName">Name</option>
+          </Select>
+        </ToolbarGrid>
+        <div className="flex justify-end border-b px-4 py-3">
+          <Button onClick={() => void kitchensQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full table-fixed divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-normal text-slate-500">
+              <tr>
+                <th className="w-[28%] px-4 py-3">Kitchen</th>
+                <th className="w-[26%] px-4 py-3">Location</th>
+                <th className="w-[22%] px-4 py-3">Status</th>
+                <th className="w-[16%] px-4 py-3">Updated</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {items.length > 0 ? (
+                items.map((kitchen) => (
+                  <tr className="hover:bg-slate-50" key={kitchen.id}>
+                    <td className="px-4 py-4">
+                      <div>
+                        <p className="font-medium text-slate-950">{kitchen.kitchenName}</p>
+                        <p className="text-xs text-slate-500">{kitchen.kitchenCode}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-slate-600">
+                      {getLocationDisplayName(kitchen.hospital)}
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusToggleCell
+                        disabled={statusMutation.isPending && statusUpdatingId === kitchen.id}
+                        isActive={kitchen.isActive}
+                        onToggle={() => toggleKitchenStatus(kitchen)}
+                        showFrozenMessage={!kitchen.hospital.isActive}
+                      />
+                    </td>
+                    <td className="px-4 py-4 text-slate-500">{formatDate(kitchen.updatedAt)}</td>
+                  </tr>
+                ))
+              ) : (
+                <QueryState
+                  colSpan={4}
+                  error={kitchensQuery.error}
+                  isError={kitchensQuery.isError}
+                  isLoading={kitchensQuery.isLoading}
+                  label="kitchens"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
+  );
+}
+
+function RestaurantThumbnail({ restaurant }: Readonly<{ restaurant: Restaurant }>) {
+  if (restaurant.thumbnailUrl) {
+    return (
+      <div
+        aria-label={`${restaurant.restaurantName} thumbnail`}
+        className="h-14 w-14 shrink-0 rounded-lg border border-slate-200 bg-cover bg-center shadow-sm dark:border-slate-800"
+        role="img"
+        style={{ backgroundImage: `url(${restaurant.thumbnailUrl})` }}
+      />
+    );
+  }
+
+  return (
+    <span className="grid h-14 w-14 shrink-0 place-items-center rounded-lg border border-teal-100 bg-teal-50 text-teal-700 shadow-sm dark:border-teal-900 dark:bg-teal-950 dark:text-teal-300">
+      <Utensils className="h-6 w-6" />
+    </span>
+  );
+}
+
+function RestaurantOnlineSwitch({
+  disabled,
+  isOnline,
+  onToggle,
+}: Readonly<{
+  disabled: boolean;
+  isOnline: boolean;
+  onToggle: () => void;
+}>) {
+  return (
+    <button
+      aria-checked={isOnline}
+      aria-label={isOnline ? 'Set restaurant offline' : 'Set restaurant online'}
+      className={cn(
+        'inline-flex h-7 w-12 items-center rounded-full border p-1 transition focus:outline-none focus:ring-2 focus:ring-teal-600/20 disabled:cursor-not-allowed disabled:opacity-60',
+        isOnline
+          ? 'border-teal-500 bg-teal-500'
+          : 'border-slate-300 bg-slate-200 dark:border-slate-700 dark:bg-slate-800',
+      )}
+      disabled={disabled}
+      onClick={onToggle}
+      role="switch"
+      type="button"
+    >
+      <span
+        className={cn(
+          'h-5 w-5 rounded-full bg-white shadow-sm transition',
+          isOnline ? 'translate-x-5' : 'translate-x-0',
+        )}
+      />
+    </button>
   );
 }
 
 export function RestaurantsPageClient() {
+  const queryClient = useQueryClient();
+  const { showToast } = useToast();
+  const { scopedHospitalId } = useLocationContext();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>('');
+  const [sortBy, setSortBy] = useState('createdAt');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [onlineUpdatingId, setOnlineUpdatingId] = useState<string | null>(null);
+
+  const restaurantsQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listRestaurants({
+        hospitalId: scopedHospitalId,
+        isActive: activeFilterToBoolean(activeFilter),
+        limit: listLimit,
+        page,
+        search,
+        sortBy,
+        sortOrder,
+      });
+
+      return response.data;
+    },
+    queryKey: ['restaurants', { activeFilter, page, scopedHospitalId, search, sortBy, sortOrder }],
+  });
+
+  useEffect(() => {
+    setPage(1);
+  }, [scopedHospitalId]);
+
+  const deleteRestaurantMutation = useMutation({
+    mutationFn: (id: string) => organizationApi.deleteRestaurant(id),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Restaurant was not deleted',
+        variant: 'error',
+      });
+    },
+    onSettled() {
+      setDeletingId(null);
+    },
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+      void queryClient.invalidateQueries({ queryKey: ['restaurant-options'] });
+      showToast({
+        title: 'Restaurant deleted',
+        variant: 'success',
+      });
+    },
+  });
+
+  const onlineToggleMutation = useMutation({
+    mutationFn: ({ id, nextIsOnline }: { id: string; nextIsOnline: boolean }) =>
+      organizationApi.updateRestaurant(id, {
+        isOnlineOrdersEnabled: nextIsOnline,
+        onlineOrders: nextIsOnline,
+        onlineOrderingEnabled: nextIsOnline,
+      }),
+    onError(error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: 'Online status was not updated',
+        variant: 'error',
+      });
+    },
+    onSettled() {
+      setOnlineUpdatingId(null);
+    },
+    onSuccess(_, variables) {
+      void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+      showToast({
+        title: variables.nextIsOnline ? 'Restaurant is online' : 'Restaurant is offline',
+        variant: 'success',
+      });
+    },
+  });
+
+  const items = restaurantsQuery.data?.items ?? [];
+  const meta = restaurantsQuery.data?.meta ?? {
+    limit: listLimit,
+    page,
+    total: 0,
+    totalPages: 1,
+  };
+  const sortOptions = [
+    { label: 'Created date', value: 'createdAt' },
+    { label: 'Restaurant name', value: 'restaurantName' },
+    { label: 'Restaurant code', value: 'restaurantCode' },
+    { label: 'Status', value: 'isActive' },
+  ];
+
+  const handleDelete = (restaurant: Restaurant) => {
+    const shouldDelete = window.confirm(`Delete ${restaurant.restaurantName}?`);
+
+    if (!shouldDelete) {
+      return;
+    }
+
+    setDeletingId(restaurant.id);
+    deleteRestaurantMutation.mutate(restaurant.id);
+  };
+
+  const handleOnlineToggle = (restaurant: Restaurant) => {
+    setOnlineUpdatingId(restaurant.id);
+    onlineToggleMutation.mutate({
+      id: restaurant.id,
+      nextIsOnline: !isRestaurantOnline(restaurant),
+    });
+  };
+
   return (
-    <EntityListPage<Restaurant>
-      config={{
-        columns: [
-          {
-            className: 'w-[26%]',
-            header: 'Restaurant',
-            render: (restaurant) => (
-              <div>
-                <p className="font-medium text-slate-950">{restaurant.restaurantName}</p>
-                <p className="text-xs text-slate-500">{restaurant.restaurantCode}</p>
-              </div>
-            )
-          },
-          {
-            className: 'w-[20%]',
-            header: 'Hospital',
-            render: (restaurant) => restaurant.hospital.hospitalName
-          },
-          {
-            className: 'w-[18%]',
-            header: 'Location',
-            render: (restaurant) => restaurant.location?.locationName ?? 'Not set'
-          },
-          {
-            className: 'w-[22%]',
-            header: 'Store / Kitchen',
-            render: (restaurant) =>
-              `${restaurant.store?.storeName ?? 'No store'} / ${
-                restaurant.kitchen?.kitchenName ?? 'No kitchen'
-              }`
-          }
-        ],
-        createHref: '/masters/restaurants/new',
-        emptyLabel: 'restaurants',
-        entityKey: 'restaurants',
-        icon: Utensils,
-        list: (query) => organizationApi.listRestaurants(query),
-        sortOptions: [
-          { label: 'Created date', value: 'createdAt' },
-          { label: 'Restaurant name', value: 'restaurantName' },
-          { label: 'Restaurant code', value: 'restaurantCode' },
-          { label: 'Status', value: 'isActive' }
-        ],
-        subtitle: 'Manage restaurants linked to hospital service areas.',
-        title: 'Restaurants'
-      }}
-    />
+    <section className="space-y-6">
+      <PageHeader
+        action={
+          <Button asChild className="bg-teal-600 hover:bg-teal-700">
+            <Link href="/masters/restaurants/new">
+              <Plus className="h-4 w-4" />
+              Create
+            </Link>
+          </Button>
+        }
+        eyebrow="Organization"
+        icon={Utensils}
+        subtitle="Manage restaurant profiles and ordering availability."
+        title="Restaurants"
+      />
+      <Panel>
+        <ToolbarGrid>
+          <SearchInput
+            onChange={(value) => {
+              setSearch(value);
+              setPage(1);
+            }}
+            value={search}
+          />
+          <ActiveFilterSelect
+            onChange={(value) => {
+              setActiveFilter(value);
+              setPage(1);
+            }}
+            value={activeFilter}
+          />
+          <Select
+            onChange={(event) => {
+              setSortBy(event.target.value);
+              setPage(1);
+            }}
+            value={sortBy}
+          >
+            {sortOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+          <SortOrderSelect
+            onChange={(value) => {
+              setSortOrder(value);
+              setPage(1);
+            }}
+            value={sortOrder}
+          />
+          <Button onClick={() => void restaurantsQuery.refetch()} type="button" variant="outline">
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </ToolbarGrid>
+        <div className="overflow-x-auto px-4 pb-4">
+          <table className="w-full min-w-[980px] border-separate border-spacing-y-3 text-left text-sm">
+            <thead className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-slate-400">
+              <tr>
+                <th className="w-[36%] px-4 py-2">Restaurant</th>
+                <th className="w-[14%] px-4 py-2">Online</th>
+                <th className="w-[30%] px-4 py-2">Status / Options</th>
+                <th className="w-[20%] px-4 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length > 0 ? (
+                items.map((restaurant) => {
+                  const isOnline = isRestaurantOnline(restaurant);
+                  const optionBadges = getRestaurantOptionBadges(restaurant);
+                  const isDeleting = deletingId === restaurant.id;
+                  const isOnlineUpdating = onlineUpdatingId === restaurant.id;
+
+                  return (
+                    <tr className="group" key={restaurant.id}>
+                      <td className="rounded-l-xl border-y border-l border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/5 transition group-hover:border-teal-100 group-hover:bg-teal-50/30 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:group-hover:border-teal-900 dark:group-hover:bg-teal-950/20">
+                        <div className="flex min-w-0 items-center gap-4">
+                          <RestaurantThumbnail restaurant={restaurant} />
+                          <div className="min-w-0">
+                            <p className="truncate text-base font-semibold text-slate-950 dark:text-slate-100">
+                              {restaurant.restaurantName}
+                            </p>
+                            <p className="mt-1 line-clamp-2 text-sm text-slate-500 dark:text-slate-400">
+                              {formatRestaurantLocationDisplay(restaurant.hospital)}
+                            </p>
+                            <p className="mt-1 text-xs font-medium text-slate-400">
+                              {restaurant.restaurantCode}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="border-y border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/5 transition group-hover:border-teal-100 group-hover:bg-teal-50/30 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:group-hover:border-teal-900 dark:group-hover:bg-teal-950/20">
+                        <div className="flex flex-col gap-2">
+                          <RestaurantOnlineSwitch
+                            disabled={isOnlineUpdating}
+                            isOnline={isOnline}
+                            onToggle={() => handleOnlineToggle(restaurant)}
+                          />
+                          <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            {isOnline ? 'Online' : 'Offline'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="border-y border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/5 transition group-hover:border-teal-100 group-hover:bg-teal-50/30 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:group-hover:border-teal-900 dark:group-hover:bg-teal-950/20">
+                        <div className="flex flex-wrap gap-2">
+                          {optionBadges.map((badge) => (
+                            <Badge key={badge.label} variant={badge.variant}>
+                              {badge.label}
+                            </Badge>
+                          ))}
+                        </div>
+                        <p className="mt-3 text-xs text-slate-400">
+                          Updated {formatDate(restaurant.updatedAt)}
+                        </p>
+                      </td>
+                      <td className="rounded-r-xl border-y border-r border-slate-200 bg-white p-4 shadow-sm shadow-slate-900/5 transition group-hover:border-teal-100 group-hover:bg-teal-50/30 dark:border-slate-800 dark:bg-slate-950 dark:shadow-black/20 dark:group-hover:border-teal-900 dark:group-hover:bg-teal-950/20">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button asChild size="sm" variant="outline">
+                            <Link href={`/masters/restaurants/${restaurant.id}/edit`}>
+                              <Pencil className="h-4 w-4" />
+                              Edit
+                            </Link>
+                          </Button>
+                          <Button
+                            disabled={isDeleting}
+                            onClick={() => handleDelete(restaurant)}
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            {isDeleting ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Delete
+                          </Button>
+                          <Button
+                            onClick={() =>
+                              showToast({
+                                title: 'QR printing will be available in QR module.',
+                                variant: 'info',
+                              })
+                            }
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            <QrCode className="h-4 w-4" />
+                            Print QR
+                          </Button>
+                          <Button
+                            onClick={() =>
+                              showToast({
+                                title:
+                                  'Customer Orders Activity will be available in Restaurant Operations.',
+                                variant: 'info',
+                              })
+                            }
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                          >
+                            <Activity className="h-4 w-4" />
+                            Activity
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <QueryState
+                  colSpan={4}
+                  error={restaurantsQuery.error}
+                  isError={restaurantsQuery.isError}
+                  isLoading={restaurantsQuery.isLoading}
+                  label="restaurants"
+                />
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationControls
+          limit={meta.limit}
+          onPageChange={setPage}
+          page={meta.page}
+          total={meta.total}
+          totalPages={meta.totalPages}
+        />
+      </Panel>
+    </section>
   );
 }
 
@@ -1418,23 +3015,23 @@ export function CountersPageClient() {
                 <p className="font-medium text-slate-950">{counter.counterName}</p>
                 <p className="text-xs text-slate-500">{counter.counterCode}</p>
               </div>
-            )
+            ),
           },
           {
             className: 'w-[22%]',
             header: 'Restaurant',
-            render: (counter) => counter.restaurant.restaurantName
+            render: (counter) => counter.restaurant.restaurantName,
           },
           {
             className: 'w-[20%]',
-            header: 'Hospital',
-            render: (counter) => counter.hospital.hospitalName
+            header: 'Location',
+            render: (counter) => getLocationDisplayName(counter.hospital),
           },
           {
             className: 'w-[18%]',
             header: 'POS Device',
-            render: (counter) => nullableText(counter.posDeviceId)
-          }
+            render: (counter) => nullableText(counter.posDeviceId),
+          },
         ],
         createHref: '/masters/counters/new',
         emptyLabel: 'counters',
@@ -1445,10 +3042,10 @@ export function CountersPageClient() {
           { label: 'Created date', value: 'createdAt' },
           { label: 'Counter name', value: 'counterName' },
           { label: 'Counter code', value: 'counterCode' },
-          { label: 'Status', value: 'isActive' }
+          { label: 'Status', value: 'isActive' },
         ],
         subtitle: 'Manage restaurant counters and POS points.',
-        title: 'Counters'
+        title: 'Counters',
       }}
     />
   );
@@ -1456,16 +3053,7 @@ export function CountersPageClient() {
 
 export function HospitalCreatePageClient() {
   const form = useForm<HospitalFormValues>({
-    defaultValues: {
-      address: '',
-      billPrefix: '',
-      city: '',
-      gstApplicable: true,
-      hospitalCode: '',
-      hospitalName: '',
-      isActive: true,
-      state: ''
-    }
+    defaultValues: toHospitalFormDefaults(),
   });
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -1475,19 +3063,20 @@ export function HospitalCreatePageClient() {
     onError(error) {
       showToast({
         description: getApiErrorMessage(error),
-        title: 'Hospital was not created',
-        variant: 'error'
+        title: 'Location was not created',
+        variant: 'error',
       });
     },
     onSuccess() {
       void queryClient.invalidateQueries({ queryKey: ['hospitals'] });
       void queryClient.invalidateQueries({ queryKey: ['hospital-options'] });
       showToast({
-        title: 'Hospital created',
-        variant: 'success'
+        description: 'Main Store and Main Kitchen were created automatically.',
+        title: 'Location created',
+        variant: 'success',
       });
-      router.push('/masters/hospitals');
-    }
+      router.push('/masters/locations');
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1498,24 +3087,15 @@ export function HospitalCreatePageClient() {
       return;
     }
 
-    createHospitalMutation.mutate({
-      address: optionalValue(parsed.data.address),
-      billPrefix: optionalValue(parsed.data.billPrefix),
-      city: optionalValue(parsed.data.city),
-      gstApplicable: parsed.data.gstApplicable,
-      hospitalCode: parsed.data.hospitalCode,
-      hospitalName: parsed.data.hospitalName,
-      isActive: parsed.data.isActive,
-      state: optionalValue(parsed.data.state)
-    });
+    createHospitalMutation.mutate(toHospitalInput(parsed.data));
   });
 
   return (
     <FormShell
-      backHref="/masters/hospitals"
-      icon={Hospital}
-      subtitle="Create a hospital for food and cafeteria operations."
-      title="Create Hospital"
+      backHref="/masters/locations"
+      icon={MapPin}
+      subtitle="Creating a Location will auto-create Main Store and Main Kitchen."
+      title="Add Location"
     >
       <form
         className="grid gap-5"
@@ -1523,38 +3103,9 @@ export function HospitalCreatePageClient() {
           void handleSubmit(event);
         }}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalName?.message} label="Hospital Name" name="hospital-name">
-            <Input id="hospital-name" {...form.register('hospitalName')} />
-          </Field>
-          <Field error={form.formState.errors.hospitalCode?.message} label="Hospital Code" name="hospital-code">
-            <Input id="hospital-code" {...form.register('hospitalCode')} />
-          </Field>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-3">
-          <Field error={form.formState.errors.city?.message} label="City" name="hospital-city">
-            <Input id="hospital-city" {...form.register('city')} />
-          </Field>
-          <Field error={form.formState.errors.state?.message} label="State" name="hospital-state">
-            <Input id="hospital-state" {...form.register('state')} />
-          </Field>
-          <Field error={form.formState.errors.billPrefix?.message} label="Bill Prefix" name="hospital-bill-prefix">
-            <Input id="hospital-bill-prefix" {...form.register('billPrefix')} />
-          </Field>
-        </div>
-        <Field error={form.formState.errors.address?.message} label="Address" name="hospital-address">
-          <Input id="hospital-address" {...form.register('address')} />
-        </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('gstApplicable')} />}>
-            GST applicable
-          </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
-            Active
-          </CheckboxLine>
-        </div>
+        <LocationMasterFormFields disabled={createHospitalMutation.isPending} form={form} />
         <div className="flex justify-end">
-          <SubmitButton isPending={createHospitalMutation.isPending} label="Create Hospital" />
+          <SubmitButton isPending={createHospitalMutation.isPending} label="Save Location" />
         </div>
       </form>
     </FormShell>
@@ -1570,8 +3121,8 @@ export function LocationCreatePageClient() {
       floor: '',
       hospitalId: '',
       isActive: true,
-      locationName: ''
-    }
+      locationName: '',
+    },
   });
   const hospitalOptionsQuery = useHospitalOptions();
   const queryClient = useQueryClient();
@@ -1583,7 +3134,7 @@ export function LocationCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Location was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1591,10 +3142,10 @@ export function LocationCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['location-options'] });
       showToast({
         title: 'Location created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/locations');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1612,7 +3163,7 @@ export function LocationCreatePageClient() {
       floor: optionalValue(parsed.data.floor),
       hospitalId: parsed.data.hospitalId,
       isActive: parsed.data.isActive,
-      locationName: parsed.data.locationName
+      locationName: parsed.data.locationName,
     });
   });
 
@@ -1620,8 +3171,8 @@ export function LocationCreatePageClient() {
     <FormShell
       backHref="/masters/locations"
       icon={MapPin}
-      subtitle="Create a location under an active hospital."
-      title="Create Location"
+      subtitle="Create a service area under an active location."
+      title="Create Service Area"
     >
       <form
         className="grid gap-5"
@@ -1629,21 +3180,37 @@ export function LocationCreatePageClient() {
           void handleSubmit(event);
         }}
       >
-        <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="location-hospital">
-          <Select disabled={hospitalOptionsQuery.isLoading} id="location-hospital" {...form.register('hospitalId')}>
-            <option value="">Select hospital</option>
+        <Field
+          error={form.formState.errors.hospitalId?.message}
+          label="Location"
+          name="location-hospital"
+        >
+          <Select
+            disabled={hospitalOptionsQuery.isLoading}
+            id="location-hospital"
+            {...form.register('hospitalId')}
+          >
+            <option value="">Select location</option>
             {hospitalOptionsQuery.data?.map((hospital) => (
               <option key={hospital.id} value={hospital.id}>
-                {hospital.hospitalName}
+                {formatLocationOption(hospital)}
               </option>
             ))}
           </Select>
         </Field>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.locationName?.message} label="Location Name" name="location-name">
+          <Field
+            error={form.formState.errors.locationName?.message}
+            label="Location Name"
+            name="location-name"
+          >
             <Input id="location-name" {...form.register('locationName')} />
           </Field>
-          <Field error={form.formState.errors.building?.message} label="Building" name="location-building">
+          <Field
+            error={form.formState.errors.building?.message}
+            label="Building"
+            name="location-building"
+          >
             <Input id="location-building" {...form.register('building')} />
           </Field>
         </div>
@@ -1655,10 +3222,16 @@ export function LocationCreatePageClient() {
             <Input id="location-area" {...form.register('area')} />
           </Field>
         </div>
-        <Field error={form.formState.errors.address?.message} label="Address" name="location-address">
+        <Field
+          error={form.formState.errors.address?.message}
+          label="Address"
+          name="location-address"
+        >
           <Input id="location-address" {...form.register('address')} />
         </Field>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -1674,25 +3247,27 @@ export function LocationCreatePageClient() {
 }
 
 export function StoreCreatePageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<StoreFormValues>({
     defaultValues: {
-      address: '',
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       isActive: true,
-      storeCode: '',
       storeName: '',
-      storeType: 'F&B'
-    }
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const storeName = form.watch('storeName');
-  const storeCode = form.watch('storeCode');
   const hospitalOptionsQuery = useHospitalOptions();
   const queryClient = useQueryClient();
   const router = useRouter();
   const { showToast } = useToast();
-  const canSubmitStore =
-    isUuid(hospitalId) && hasRequiredText(storeName) && hasRequiredText(storeCode);
+  const canSubmitStore = isUuid(hospitalId) && hasRequiredText(storeName);
+
+  useEffect(() => {
+    if (scopedHospitalId && form.getValues('hospitalId') !== scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+    }
+  }, [form, scopedHospitalId]);
 
   const createStoreMutation = useMutation({
     mutationFn: (body: StoreInput) => organizationApi.createStore(body),
@@ -1700,7 +3275,7 @@ export function StoreCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Store was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1708,10 +3283,10 @@ export function StoreCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['store-options'] });
       showToast({
         title: 'Store created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/stores');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1723,12 +3298,9 @@ export function StoreCreatePageClient() {
     }
 
     createStoreMutation.mutate({
-      address: optionalValue(parsed.data.address),
       hospitalId: parsed.data.hospitalId,
       isActive: parsed.data.isActive,
-      storeCode: parsed.data.storeCode,
       storeName: parsed.data.storeName,
-      storeType: optionalValue(parsed.data.storeType)
     });
   });
 
@@ -1746,34 +3318,40 @@ export function StoreCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="store-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="store-hospital" {...form.register('hospitalId')}>
-              <option value="">Select hospital</option>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Location"
+            name="store-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading || isLocationSelectorLocked}
+              id="store-hospital"
+              {...form.register('hospitalId')}
+            >
+              <option value="">Select location</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
-                  {hospital.hospitalName}
+                  {formatLocationOption(hospital)}
                 </option>
               ))}
             </Select>
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.storeName?.message} label="Store Name" name="store-name">
+          <Field
+            error={form.formState.errors.storeName?.message}
+            label="Store Name"
+            name="store-name"
+          >
             <Input id="store-name" {...form.register('storeName')} />
           </Field>
-          <Field error={form.formState.errors.storeCode?.message} label="Store Code" name="store-code">
-            <Input id="store-code" {...form.register('storeCode')} />
+          <Field label="Store Code" name="store-code">
+            <Input id="store-code" readOnly value="Auto-generated after save" />
           </Field>
         </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.storeType?.message} label="Store Type" name="store-type">
-            <Input id="store-type" {...form.register('storeType')} />
-          </Field>
-          <Field error={form.formState.errors.address?.message} label="Address" name="store-address">
-            <Input id="store-address" {...form.register('address')} />
-          </Field>
-        </div>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -1793,25 +3371,27 @@ export function StoreCreatePageClient() {
 }
 
 export function KitchenCreatePageClient() {
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<KitchenFormValues>({
     defaultValues: {
-      closingTime: '',
-      hospitalId: '',
+      hospitalId: scopedHospitalId ?? '',
       isActive: true,
-      kitchenCode: '',
       kitchenName: '',
-      openingTime: ''
-    }
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const kitchenName = form.watch('kitchenName');
-  const kitchenCode = form.watch('kitchenCode');
   const hospitalOptionsQuery = useHospitalOptions();
   const queryClient = useQueryClient();
   const router = useRouter();
   const { showToast } = useToast();
-  const canSubmitKitchen =
-    isUuid(hospitalId) && hasRequiredText(kitchenName) && hasRequiredText(kitchenCode);
+  const canSubmitKitchen = isUuid(hospitalId) && hasRequiredText(kitchenName);
+
+  useEffect(() => {
+    if (scopedHospitalId && form.getValues('hospitalId') !== scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+    }
+  }, [form, scopedHospitalId]);
 
   const createKitchenMutation = useMutation({
     mutationFn: (body: KitchenInput) => organizationApi.createKitchen(body),
@@ -1819,7 +3399,7 @@ export function KitchenCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Kitchen was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
@@ -1827,10 +3407,10 @@ export function KitchenCreatePageClient() {
       void queryClient.invalidateQueries({ queryKey: ['kitchen-options'] });
       showToast({
         title: 'Kitchen created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/kitchens');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -1842,12 +3422,9 @@ export function KitchenCreatePageClient() {
     }
 
     createKitchenMutation.mutate({
-      closingTime: optionalValue(parsed.data.closingTime),
       hospitalId: parsed.data.hospitalId,
       isActive: parsed.data.isActive,
-      kitchenCode: parsed.data.kitchenCode,
       kitchenName: parsed.data.kitchenName,
-      openingTime: optionalValue(parsed.data.openingTime)
     });
   });
 
@@ -1855,7 +3432,7 @@ export function KitchenCreatePageClient() {
     <FormShell
       backHref="/masters/kitchens"
       icon={ChefHat}
-      subtitle="Create a kitchen for hospital food production."
+      subtitle="Create a kitchen for location food production."
       title="Create Kitchen"
     >
       <form
@@ -1865,34 +3442,40 @@ export function KitchenCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="kitchen-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="kitchen-hospital" {...form.register('hospitalId')}>
-              <option value="">Select hospital</option>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Location"
+            name="kitchen-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading || isLocationSelectorLocked}
+              id="kitchen-hospital"
+              {...form.register('hospitalId')}
+            >
+              <option value="">Select location</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
-                  {hospital.hospitalName}
+                  {formatLocationOption(hospital)}
                 </option>
               ))}
             </Select>
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.kitchenName?.message} label="Kitchen Name" name="kitchen-name">
+          <Field
+            error={form.formState.errors.kitchenName?.message}
+            label="Kitchen Name"
+            name="kitchen-name"
+          >
             <Input id="kitchen-name" {...form.register('kitchenName')} />
           </Field>
-          <Field error={form.formState.errors.kitchenCode?.message} label="Kitchen Code" name="kitchen-code">
-            <Input id="kitchen-code" {...form.register('kitchenCode')} />
+          <Field label="Kitchen Code" name="kitchen-code">
+            <Input id="kitchen-code" readOnly value="Auto-generated after save" />
           </Field>
         </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.openingTime?.message} label="Opening Time" name="kitchen-opening-time">
-            <Input id="kitchen-opening-time" placeholder="07:00" {...form.register('openingTime')} />
-          </Field>
-          <Field error={form.formState.errors.closingTime?.message} label="Closing Time" name="kitchen-closing-time">
-            <Input id="kitchen-closing-time" placeholder="22:00" {...form.register('closingTime')} />
-          </Field>
-        </div>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -1911,64 +3494,131 @@ export function KitchenCreatePageClient() {
   );
 }
 
-export function RestaurantCreatePageClient() {
+function RestaurantFormPageClient({ restaurantId }: Readonly<{ restaurantId?: string }>) {
+  const isEditMode = Boolean(restaurantId);
+  const { isLocationSelectorLocked, scopedHospitalId } = useLocationContext();
   const form = useForm<RestaurantFormValues>({
     defaultValues: {
-      address: '',
-      b2cQrEnabled: false,
-      closingTime: '',
-      hospitalId: '',
-      inRoomDiningEnabled: false,
-      isActive: true,
-      kitchenId: '',
-      onlineOrderingEnabled: false,
-      openingTime: '',
-      restaurantCode: '',
-      restaurantName: '',
-      storeId: ''
-    }
+      ...restaurantFormDefaultValues,
+      hospitalId: scopedHospitalId ?? restaurantFormDefaultValues.hospitalId,
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const restaurantName = form.watch('restaurantName');
-  const restaurantCode = form.watch('restaurantCode');
-  const { setValue } = form;
   const hospitalOptionsQuery = useHospitalOptions();
-  const storeOptionsQuery = useStoreOptions(hospitalId);
-  const kitchenOptionsQuery = useKitchenOptions(hospitalId);
   const queryClient = useQueryClient();
   const router = useRouter();
   const { showToast } = useToast();
-  const canSubmitRestaurant =
-    isUuid(hospitalId) &&
-    hasRequiredText(restaurantName) &&
-    hasRequiredText(restaurantCode);
+  const [coverFile, setCoverFile] = useState<File | undefined>();
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | undefined>();
+  const [imageErrors, setImageErrors] = useState<{ cover?: string; thumbnail?: string }>({});
+  const [isUploadingImages, setIsUploadingImages] = useState(false);
+  const [thumbnailFile, setThumbnailFile] = useState<File | undefined>();
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | undefined>();
+  const canSubmitRestaurant = isUuid(hospitalId) && hasRequiredText(restaurantName);
 
-  useEffect(() => {
-    setValue('kitchenId', '');
-    setValue('storeId', '');
-  }, [hospitalId, setValue]);
+  const restaurantQuery = useQuery({
+    enabled: isEditMode,
+    queryFn: async () => {
+      const response = await organizationApi.getRestaurant(restaurantId!);
 
-  const createRestaurantMutation = useMutation({
-    mutationFn: (body: RestaurantInput) => organizationApi.createRestaurant(body),
-    onError(error) {
-      showToast({
-        description: getApiErrorMessage(error),
-        title: 'Restaurant was not created',
-        variant: 'error'
-      });
+      return response.data;
     },
-    onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
-      void queryClient.invalidateQueries({ queryKey: ['restaurant-options'] });
-      showToast({
-        title: 'Restaurant created',
-        variant: 'success'
-      });
-      router.push('/masters/restaurants');
-    }
+    queryKey: ['restaurant', restaurantId],
   });
 
-  const handleSubmit = form.handleSubmit((values) => {
+  useEffect(() => {
+    if (!restaurantQuery.data) {
+      return;
+    }
+
+    form.reset(toRestaurantFormDefaults(restaurantQuery.data));
+    setThumbnailPreviewUrl(restaurantQuery.data.thumbnailUrl ?? undefined);
+    setCoverPreviewUrl(restaurantQuery.data.coverImageUrl ?? undefined);
+    setThumbnailFile(undefined);
+    setCoverFile(undefined);
+  }, [form, restaurantQuery.data]);
+
+  useEffect(() => {
+    if (!isEditMode && scopedHospitalId && form.getValues('hospitalId') !== scopedHospitalId) {
+      form.setValue('hospitalId', scopedHospitalId, { shouldValidate: true });
+    }
+  }, [form, isEditMode, scopedHospitalId]);
+
+  useEffect(() => {
+    return () => {
+      if (isObjectUrl(coverPreviewUrl)) {
+        URL.revokeObjectURL(coverPreviewUrl);
+      }
+    };
+  }, [coverPreviewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (isObjectUrl(thumbnailPreviewUrl)) {
+        URL.revokeObjectURL(thumbnailPreviewUrl);
+      }
+    };
+  }, [thumbnailPreviewUrl]);
+
+  const saveRestaurantMutation = useMutation({
+    mutationFn: (body: RestaurantInput) =>
+      restaurantId
+        ? organizationApi.updateRestaurant(restaurantId, body)
+        : organizationApi.createRestaurant(body),
+    onSuccess(response) {
+      void queryClient.invalidateQueries({ queryKey: ['restaurants'] });
+      void queryClient.invalidateQueries({ queryKey: ['restaurant-options'] });
+      if (restaurantId) {
+        void queryClient.invalidateQueries({ queryKey: ['restaurant', restaurantId] });
+      }
+      showToast({
+        description: response.data.restaurantCode
+          ? `Restaurant Code: ${response.data.restaurantCode}`
+          : undefined,
+        title: restaurantId ? 'Restaurant updated' : 'Restaurant created',
+        variant: 'success',
+      });
+      router.push('/masters/restaurants');
+    },
+  });
+
+  const handleImageChange =
+    (imageType: 'cover' | 'thumbnail') => (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+
+      if (!file) {
+        return;
+      }
+
+      const error = getRestaurantImageError(file);
+
+      if (error) {
+        setImageErrors((current) => ({ ...current, [imageType]: error }));
+        event.target.value = '';
+        return;
+      }
+
+      const previewUrl = URL.createObjectURL(file);
+
+      setImageErrors((current) => ({ ...current, [imageType]: undefined }));
+
+      if (imageType === 'thumbnail') {
+        setThumbnailFile(file);
+        setThumbnailPreviewUrl((currentPreviewUrl) => {
+          if (isObjectUrl(currentPreviewUrl)) URL.revokeObjectURL(currentPreviewUrl);
+          return previewUrl;
+        });
+      } else {
+        setCoverFile(file);
+        setCoverPreviewUrl((currentPreviewUrl) => {
+          if (isObjectUrl(currentPreviewUrl)) URL.revokeObjectURL(currentPreviewUrl);
+          return previewUrl;
+        });
+      }
+    };
+
+  const handleSubmit = form.handleSubmit(async (values) => {
     const parsed = restaurantSchema.safeParse(values);
 
     if (!parsed.success) {
@@ -1976,122 +3626,361 @@ export function RestaurantCreatePageClient() {
       return;
     }
 
-    createRestaurantMutation.mutate({
-      address: optionalValue(parsed.data.address),
-      b2cQrEnabled: parsed.data.b2cQrEnabled,
-      closingTime: optionalValue(parsed.data.closingTime),
-      hospitalId: parsed.data.hospitalId,
-      inRoomDiningEnabled: parsed.data.inRoomDiningEnabled,
-      isActive: parsed.data.isActive,
-      kitchenId: optionalId(parsed.data.kitchenId),
-      onlineOrderingEnabled: parsed.data.onlineOrderingEnabled,
-      openingTime: optionalValue(parsed.data.openingTime),
-      restaurantCode: parsed.data.restaurantCode,
-      restaurantName: parsed.data.restaurantName,
-      storeId: optionalId(parsed.data.storeId)
-    });
+    setIsUploadingImages(true);
+
+    try {
+      const [thumbnailUrl, coverImageUrl] = await Promise.all([
+        thumbnailFile
+          ? uploadRestaurantImage(thumbnailFile)
+          : Promise.resolve(restaurantQuery.data?.thumbnailUrl ?? undefined),
+        coverFile
+          ? uploadRestaurantImage(coverFile)
+          : Promise.resolve(restaurantQuery.data?.coverImageUrl ?? undefined),
+      ]);
+
+      await saveRestaurantMutation.mutateAsync(
+        toRestaurantInput(parsed.data, {
+          coverImageUrl,
+          thumbnailUrl,
+        }),
+      );
+    } catch (error) {
+      showToast({
+        description: getApiErrorMessage(error),
+        title: restaurantId ? 'Restaurant was not updated' : 'Restaurant was not created',
+        variant: 'error',
+      });
+    } finally {
+      setIsUploadingImages(false);
+    }
   });
 
-  const hasOptionError =
-    hospitalOptionsQuery.isError ||
-    storeOptionsQuery.isError ||
-    kitchenOptionsQuery.isError;
-  const optionError =
-    hospitalOptionsQuery.error ??
-    storeOptionsQuery.error ??
-    kitchenOptionsQuery.error;
+  if (isEditMode && restaurantQuery.isLoading) {
+    return (
+      <FormShell
+        backHref="/masters/restaurants"
+        icon={Utensils}
+        subtitle="Load restaurant details for editing."
+        title="Update Restaurant"
+      >
+        <div className="grid gap-4">
+          <Skeleton className="h-16" />
+          <Skeleton className="h-64" />
+          <Skeleton className="h-40" />
+        </div>
+      </FormShell>
+    );
+  }
+
+  if (isEditMode && restaurantQuery.isError) {
+    return (
+      <FormShell
+        backHref="/masters/restaurants"
+        icon={Utensils}
+        subtitle="Load restaurant details for editing."
+        title="Update Restaurant"
+      >
+        <p className="text-sm font-medium text-red-600">
+          {getApiErrorMessage(restaurantQuery.error)}
+        </p>
+      </FormShell>
+    );
+  }
 
   return (
     <FormShell
       backHref="/masters/restaurants"
       icon={Utensils}
-      subtitle="Create a restaurant linked to a hospital location."
-      title="Create Restaurant"
+      subtitle={
+        isEditMode
+          ? 'Update restaurant profile for location food service.'
+          : 'Create a restaurant profile for location food service.'
+      }
+      title={isEditMode ? 'Update Restaurant' : 'Create Restaurant'}
     >
       <form
-        className="grid gap-5"
+        className="grid gap-7"
         onSubmit={(event) => {
           void handleSubmit(event);
         }}
       >
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="restaurant-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="restaurant-hospital" {...form.register('hospitalId')}>
-              <option value="">Select hospital</option>
-              {hospitalOptionsQuery.data?.map((hospital) => (
-                <option key={hospital.id} value={hospital.id}>
-                  {hospital.hospitalName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.restaurantName?.message} label="Restaurant Name" name="restaurant-name">
-            <Input id="restaurant-name" {...form.register('restaurantName')} />
-          </Field>
-          <Field error={form.formState.errors.restaurantCode?.message} label="Restaurant Code" name="restaurant-code">
-            <Input id="restaurant-code" {...form.register('restaurantCode')} />
-          </Field>
-        </div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.storeId?.message} label="Store/F&B" name="restaurant-store">
-            <Select disabled={!hospitalId || storeOptionsQuery.isLoading} id="restaurant-store" {...form.register('storeId')}>
-              <option value="">No store selected</option>
-              {storeOptionsQuery.data?.map((store) => (
-                <option key={store.id} value={store.id}>
-                  {store.storeName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field error={form.formState.errors.kitchenId?.message} label="Kitchen" name="restaurant-kitchen">
-            <Select disabled={!hospitalId || kitchenOptionsQuery.isLoading} id="restaurant-kitchen" {...form.register('kitchenId')}>
-              <option value="">No kitchen selected</option>
-              {kitchenOptionsQuery.data?.map((kitchen) => (
-                <option key={kitchen.id} value={kitchen.id}>
-                  {kitchen.kitchenName}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
-        <Field error={form.formState.errors.address?.message} label="Address" name="restaurant-address">
-          <Input id="restaurant-address" {...form.register('address')} />
-        </Field>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.openingTime?.message} label="Opening Time" name="restaurant-opening-time">
-            <Input id="restaurant-opening-time" placeholder="07:00" {...form.register('openingTime')} />
-          </Field>
-          <Field error={form.formState.errors.closingTime?.message} label="Closing Time" name="restaurant-closing-time">
-            <Input id="restaurant-closing-time" placeholder="22:00" {...form.register('closingTime')} />
-          </Field>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('onlineOrderingEnabled')} />}>
-            Online ordering
-          </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('inRoomDiningEnabled')} />}>
-            Room service
-          </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('b2cQrEnabled')} />}>
-            B2C QR
-          </CheckboxLine>
-          <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <div className="space-y-4">
+          <SectionHeading title="Basic Information" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              error={form.formState.errors.hospitalId?.message}
+              label="Location"
+              name="restaurant-location"
+            >
+              <Select
+                disabled={hospitalOptionsQuery.isLoading || isLocationSelectorLocked}
+                id="restaurant-location"
+                {...form.register('hospitalId')}
+              >
+                <option value="">Select location</option>
+                {hospitalOptionsQuery.data?.map((hospital) => (
+                  <option key={hospital.id} value={hospital.id}>
+                    {formatRestaurantLocationOption(hospital)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field
+              error={form.formState.errors.restaurantName?.message}
+              label="Name"
+              name="restaurant-name"
+            >
+              <Input id="restaurant-name" {...form.register('restaurantName')} />
+            </Field>
+            {isEditMode ? (
+              <Field label="Restaurant Code" name="restaurant-code">
+                <Input
+                  id="restaurant-code"
+                  readOnly
+                  value={restaurantQuery.data?.restaurantCode ?? 'Auto-generated'}
+                />
+              </Field>
+            ) : null}
+            <Field
+              error={form.formState.errors.email?.message}
+              label="Email"
+              name="restaurant-email"
+            >
+              <Input id="restaurant-email" {...form.register('email')} />
+            </Field>
+            <Field
+              error={form.formState.errors.mobile?.message}
+              label="Mobile"
+              name="restaurant-mobile"
+            >
+              <Input id="restaurant-mobile" {...form.register('mobile')} />
+            </Field>
+          </div>
+          <CheckboxLine
+            input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+          >
             Active
           </CheckboxLine>
         </div>
-        <FormWarning isVisible={hasOptionError} message={getApiErrorMessage(optionError)} />
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="FSSAI" />
+          <Field
+            error={form.formState.errors.fssaiNumbers?.message}
+            label="FSSAI"
+            name="restaurant-fssai"
+          >
+            <Input
+              id="restaurant-fssai"
+              placeholder="12345678901234, 98765432109876"
+              {...form.register('fssaiNumbers')}
+            />
+          </Field>
+        </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="Images" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <ImageUploadField
+              error={imageErrors.thumbnail}
+              id="restaurant-thumbnail"
+              label="Thumbnail upload"
+              onChange={handleImageChange('thumbnail')}
+              previewUrl={thumbnailPreviewUrl}
+            />
+            <ImageUploadField
+              error={imageErrors.cover}
+              id="restaurant-cover"
+              label="Cover upload"
+              onChange={handleImageChange('cover')}
+              previewUrl={coverPreviewUrl}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="GST Information" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              error={form.formState.errors.panNumber?.message}
+              label="PAN Number"
+              name="restaurant-pan"
+            >
+              <Input id="restaurant-pan" {...form.register('panNumber')} />
+            </Field>
+            <Field
+              error={form.formState.errors.gstNumber?.message}
+              label="GST Number"
+              name="restaurant-gst"
+            >
+              <Input id="restaurant-gst" {...form.register('gstNumber')} />
+            </Field>
+            <Field
+              error={form.formState.errors.legalName?.message}
+              label="Legal Name"
+              name="restaurant-legal-name"
+            >
+              <Input id="restaurant-legal-name" {...form.register('legalName')} />
+            </Field>
+          </div>
+          <Field
+            error={form.formState.errors.address?.message}
+            label="Address"
+            name="restaurant-address"
+          >
+            <Input id="restaurant-address" {...form.register('address')} />
+          </Field>
+          <CheckboxLine
+            input={
+              <input className="h-4 w-4" type="checkbox" {...form.register('isRegisteredInGst')} />
+            }
+          >
+            Registered in GST
+          </CheckboxLine>
+        </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="Banking Information" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              error={form.formState.errors.unitNameForQr?.message}
+              label="Unit Name for QR Code"
+              name="restaurant-qr-unit"
+            >
+              <Input id="restaurant-qr-unit" {...form.register('unitNameForQr')} />
+            </Field>
+            <Field
+              error={form.formState.errors.bankNameBranch?.message}
+              label="Bank Name & Branch"
+              name="restaurant-bank"
+            >
+              <Input id="restaurant-bank" {...form.register('bankNameBranch')} />
+            </Field>
+            <Field
+              error={form.formState.errors.ifscCode?.message}
+              label="IFSC Code"
+              name="restaurant-ifsc"
+            >
+              <Input id="restaurant-ifsc" {...form.register('ifscCode')} />
+            </Field>
+            <Field
+              error={form.formState.errors.accountNumber?.message}
+              label="Account Number"
+              name="restaurant-account"
+            >
+              <Input id="restaurant-account" {...form.register('accountNumber')} />
+            </Field>
+            <Field
+              error={form.formState.errors.upiId?.message}
+              label="UPI ID"
+              name="restaurant-upi"
+            >
+              <Input id="restaurant-upi" {...form.register('upiId')} />
+            </Field>
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="More Options" />
+          <div className="grid gap-3 md:grid-cols-3">
+            {[
+              ['isOffline', 'Offline'],
+              ['isOpen24x7', 'Open 24x7'],
+              ['isVegOnly', 'Veg Only'],
+              ['isTakeawayEnabled', 'Takeaway'],
+              ['isDeliveryEnabled', 'Delivery'],
+              ['isHomeDeliveryEnabled', 'Home Delivery'],
+              ['isAtTableDiningEnabled', 'At Table Dining'],
+              ['isInRoomDiningEnabled', 'In Room Dining'],
+              ['isInCarDiningEnabled', 'In Car Dining'],
+              ['isPosOrdersEnabled', 'POS Orders'],
+              ['isOnlineOrdersEnabled', 'Online Orders'],
+              ['isInventoryEnabled', 'Inventory'],
+            ].map(([name, label]) => (
+              <CheckboxLine
+                input={
+                  <input
+                    className="h-4 w-4"
+                    type="checkbox"
+                    {...form.register(name as Path<RestaurantFormValues>)}
+                  />
+                }
+                key={name}
+              >
+                {label}
+              </CheckboxLine>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="Sodexo Information" />
+          <div className="grid gap-5 sm:grid-cols-2">
+            <Field
+              error={form.formState.errors.sodexoMid?.message}
+              label="Sodexo MID"
+              name="restaurant-sodexo-mid"
+            >
+              <Input id="restaurant-sodexo-mid" {...form.register('sodexoMid')} />
+            </Field>
+            <Field
+              error={form.formState.errors.sodexoTid?.message}
+              label="Sodexo TID"
+              name="restaurant-sodexo-tid"
+            >
+              <Input id="restaurant-sodexo-tid" {...form.register('sodexoTid')} />
+            </Field>
+          </div>
+        </div>
+
+        <div className="space-y-4 border-t border-slate-100 pt-6">
+          <SectionHeading title="ERP Fields" />
+          <div className="grid gap-5 sm:grid-cols-3">
+            <Field
+              error={form.formState.errors.sunBu?.message}
+              label="Field SUN BU"
+              name="restaurant-sun-bu"
+            >
+              <Input id="restaurant-sun-bu" {...form.register('sunBu')} />
+            </Field>
+            <Field
+              error={form.formState.errors.sunT1?.message}
+              label="Field T1"
+              name="restaurant-sun-t1"
+            >
+              <Input id="restaurant-sun-t1" {...form.register('sunT1')} />
+            </Field>
+            <Field
+              error={form.formState.errors.sunT2?.message}
+              label="Field T2"
+              name="restaurant-sun-t2"
+            >
+              <Input id="restaurant-sun-t2" {...form.register('sunT2')} />
+            </Field>
+          </div>
+        </div>
+        <FormWarning
+          isVisible={hospitalOptionsQuery.isError}
+          message={getApiErrorMessage(hospitalOptionsQuery.error)}
+        />
         <div className="flex justify-end">
           <SubmitButton
             disabled={!canSubmitRestaurant}
-            isPending={createRestaurantMutation.isPending}
-            label="Create Restaurant"
+            isPending={saveRestaurantMutation.isPending || isUploadingImages}
+            label={isEditMode ? 'Update Restaurant' : 'Create Restaurant'}
           />
         </div>
       </form>
     </FormShell>
   );
+}
+
+export function RestaurantCreatePageClient() {
+  return <RestaurantFormPageClient />;
+}
+
+export function RestaurantEditPageClient({ restaurantId }: Readonly<{ restaurantId: string }>) {
+  return <RestaurantFormPageClient restaurantId={restaurantId} />;
 }
 
 export function CounterCreatePageClient() {
@@ -2104,8 +3993,8 @@ export function CounterCreatePageClient() {
       paymentDeviceId: '',
       pineLabsDeviceId: '',
       posDeviceId: '',
-      restaurantId: ''
-    }
+      restaurantId: '',
+    },
   });
   const hospitalId = form.watch('hospitalId');
   const hospitalOptionsQuery = useHospitalOptions();
@@ -2119,17 +4008,17 @@ export function CounterCreatePageClient() {
       showToast({
         description: getApiErrorMessage(error),
         title: 'Counter was not created',
-        variant: 'error'
+        variant: 'error',
       });
     },
     onSuccess() {
       void queryClient.invalidateQueries({ queryKey: ['counters'] });
       showToast({
         title: 'Counter created',
-        variant: 'success'
+        variant: 'success',
       });
       router.push('/masters/counters');
-    }
+    },
   });
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -2148,7 +4037,7 @@ export function CounterCreatePageClient() {
       paymentDeviceId: optionalValue(parsed.data.paymentDeviceId),
       pineLabsDeviceId: optionalValue(parsed.data.pineLabsDeviceId),
       posDeviceId: optionalValue(parsed.data.posDeviceId),
-      restaurantId: parsed.data.restaurantId
+      restaurantId: parsed.data.restaurantId,
     });
   });
 
@@ -2166,18 +4055,34 @@ export function CounterCreatePageClient() {
         }}
       >
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.hospitalId?.message} label="Hospital" name="counter-hospital">
-            <Select disabled={hospitalOptionsQuery.isLoading} id="counter-hospital" {...form.register('hospitalId')}>
-              <option value="">Select hospital</option>
+          <Field
+            error={form.formState.errors.hospitalId?.message}
+            label="Location"
+            name="counter-hospital"
+          >
+            <Select
+              disabled={hospitalOptionsQuery.isLoading}
+              id="counter-hospital"
+              {...form.register('hospitalId')}
+            >
+              <option value="">Select location</option>
               {hospitalOptionsQuery.data?.map((hospital) => (
                 <option key={hospital.id} value={hospital.id}>
-                  {hospital.hospitalName}
+                  {formatLocationOption(hospital)}
                 </option>
               ))}
             </Select>
           </Field>
-          <Field error={form.formState.errors.restaurantId?.message} label="Restaurant" name="counter-restaurant">
-            <Select disabled={!hospitalId || restaurantOptionsQuery.isLoading} id="counter-restaurant" {...form.register('restaurantId')}>
+          <Field
+            error={form.formState.errors.restaurantId?.message}
+            label="Restaurant"
+            name="counter-restaurant"
+          >
+            <Select
+              disabled={!hospitalId || restaurantOptionsQuery.isLoading}
+              id="counter-restaurant"
+              {...form.register('restaurantId')}
+            >
               <option value="">Select restaurant</option>
               {restaurantOptionsQuery.data?.map((restaurant) => (
                 <option key={restaurant.id} value={restaurant.id}>
@@ -2188,25 +4093,47 @@ export function CounterCreatePageClient() {
           </Field>
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field error={form.formState.errors.counterName?.message} label="Counter Name" name="counter-name">
+          <Field
+            error={form.formState.errors.counterName?.message}
+            label="Counter Name"
+            name="counter-name"
+          >
             <Input id="counter-name" {...form.register('counterName')} />
           </Field>
-          <Field error={form.formState.errors.counterCode?.message} label="Counter Code" name="counter-code">
+          <Field
+            error={form.formState.errors.counterCode?.message}
+            label="Counter Code"
+            name="counter-code"
+          >
             <Input id="counter-code" {...form.register('counterCode')} />
           </Field>
         </div>
         <div className="grid gap-5 md:grid-cols-3">
-          <Field error={form.formState.errors.posDeviceId?.message} label="POS Device ID" name="counter-pos-device">
+          <Field
+            error={form.formState.errors.posDeviceId?.message}
+            label="POS Device ID"
+            name="counter-pos-device"
+          >
             <Input id="counter-pos-device" {...form.register('posDeviceId')} />
           </Field>
-          <Field error={form.formState.errors.paymentDeviceId?.message} label="Payment Device ID" name="counter-payment-device">
+          <Field
+            error={form.formState.errors.paymentDeviceId?.message}
+            label="Payment Device ID"
+            name="counter-payment-device"
+          >
             <Input id="counter-payment-device" {...form.register('paymentDeviceId')} />
           </Field>
-          <Field error={form.formState.errors.pineLabsDeviceId?.message} label="Pine Labs Device ID" name="counter-pinelabs-device">
+          <Field
+            error={form.formState.errors.pineLabsDeviceId?.message}
+            label="Pine Labs Device ID"
+            name="counter-pinelabs-device"
+          >
             <Input id="counter-pinelabs-device" {...form.register('pineLabsDeviceId')} />
           </Field>
         </div>
-        <CheckboxLine input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}>
+        <CheckboxLine
+          input={<input className="h-4 w-4" type="checkbox" {...form.register('isActive')} />}
+        >
           Active
         </CheckboxLine>
         <FormWarning
@@ -2222,91 +4149,263 @@ export function CounterCreatePageClient() {
 }
 
 export function DashboardOverview() {
+  const { isAllLocations, locationLabel, scopedHospitalId } = useLocationContext();
   const hospitalsQuery = useEntityTotal('hospitals', () =>
     organizationApi.listHospitals({ limit: 1 }),
   );
-  const storesQuery = useEntityTotal('stores', () => organizationApi.listStores({ limit: 1 }));
-  const kitchensQuery = useEntityTotal('kitchens', () =>
-    organizationApi.listKitchens({ limit: 1 }),
+  const storesQuery = useEntityTotal(['stores', scopedHospitalId ?? 'all'], () =>
+    organizationApi.listStores({ hospitalId: scopedHospitalId, limit: 1 }),
   );
-  const restaurantsQuery = useEntityTotal('restaurants', () =>
-    organizationApi.listRestaurants({ limit: 1 }),
+  const kitchensQuery = useEntityTotal(['kitchens', scopedHospitalId ?? 'all'], () =>
+    organizationApi.listKitchens({ hospitalId: scopedHospitalId, limit: 1 }),
   );
-  const countersQuery = useEntityTotal('counters', () =>
-    organizationApi.listCounters({ limit: 1 }),
+  const restaurantsQuery = useEntityTotal(['restaurants', scopedHospitalId ?? 'all'], () =>
+    organizationApi.listRestaurants({ hospitalId: scopedHospitalId, limit: 1 }),
   );
+  const itemsQuery = useEntityTotal('items', () => organizationApi.listItems({ limit: 1 }));
+  const employeesQuery = useEntityTotal('employees', () =>
+    organizationApi.listEmployees({ limit: 1 }),
+  );
+  const recentGrnsQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listGrns({
+        hospitalId: scopedHospitalId,
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['dashboard', 'recent-grns', scopedHospitalId ?? 'all'],
+  });
+  const recentTransfersQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listTransfers({
+        hospitalId: scopedHospitalId,
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+      });
+
+      return response.data.items;
+    },
+    queryKey: ['dashboard', 'recent-transfers', scopedHospitalId ?? 'all'],
+  });
+  const pendingTransfersQuery = useQuery({
+    queryFn: async () => {
+      const response = await organizationApi.listTransfers({
+        hospitalId: scopedHospitalId,
+        limit: 5,
+        sortBy: 'createdAt',
+        sortOrder: 'desc',
+        status: 'PENDING_ACKNOWLEDGEMENT',
+      });
+
+      return response.data;
+    },
+    queryKey: ['dashboard', 'pending-acknowledgements', scopedHospitalId ?? 'all'],
+  });
 
   const cards = [
     {
-      href: '/masters/hospitals',
-      icon: Hospital,
-      label: 'Hospitals',
+      href: '/masters/locations',
+      icon: MapPin,
+      label: 'Locations',
       query: hospitalsQuery,
-      tone: 'bg-teal-50 text-teal-700'
+      tone: 'teal' as const,
+      valueOverride: isAllLocations ? undefined : 1,
     },
     {
       href: '/masters/stores',
       icon: Store,
       label: 'Stores',
       query: storesQuery,
-      tone: 'bg-emerald-50 text-emerald-700'
+      tone: 'emerald' as const,
     },
     {
       href: '/masters/kitchens',
       icon: ChefHat,
       label: 'Kitchens',
       query: kitchensQuery,
-      tone: 'bg-amber-50 text-amber-700'
+      tone: 'amber' as const,
     },
     {
       href: '/masters/restaurants',
       icon: Utensils,
       label: 'Restaurants',
       query: restaurantsQuery,
-      tone: 'bg-indigo-50 text-indigo-700'
+      tone: 'violet' as const,
     },
     {
-      href: '/masters/counters',
-      icon: CreditCard,
-      label: 'Counters',
-      query: countersQuery,
-      tone: 'bg-rose-50 text-rose-700'
-    }
+      href: '/masters/items',
+      icon: PackageOpen,
+      label: 'Items',
+      query: itemsQuery,
+      tone: 'blue' as const,
+    },
+    {
+      href: '/masters/employees',
+      icon: UsersRound,
+      label: 'Employees',
+      query: employeesQuery,
+      tone: 'rose' as const,
+    },
   ];
 
   return (
     <section className="space-y-6">
-      <PageHeader
-        eyebrow="Overview"
+      <AppPageHeader
+        action={
+          <Button asChild>
+            <Link href="/inventory/transfers">
+              <ArrowRightLeft className="h-4 w-4" />
+              Review Transfers
+            </Link>
+          </Button>
+        }
+        description="Monitor location food operations, inventory movements, and pending restaurant acknowledgements."
+        eyebrow={isAllLocations ? 'Overview - All Locations' : `Overview - ${locationLabel}`}
         icon={Building2}
-        subtitle="Hospital food operations workspace."
         title="Dashboard"
       />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {cards.map((card) => {
-          const Icon = card.icon;
 
-          return (
-            <Link href={card.href} key={card.href}>
-              <Panel className="p-5 transition hover:-translate-y-0.5 hover:shadow-md">
-                <div className="flex items-center justify-between gap-4">
-                  <span className={cn('grid h-11 w-11 place-items-center rounded-lg', card.tone)}>
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <ArrowLeft className="h-4 w-4 rotate-180 text-slate-400" />
-                </div>
-                <p className="mt-6 text-sm font-medium text-slate-500">{card.label}</p>
-                {card.query.isLoading ? (
-                  <Skeleton className="mt-2 h-9 w-20" />
-                ) : (
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {card.query.data ?? 0}
-                  </p>
-                )}
-              </Panel>
-            </Link>
-          );
-        })}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {cards.map((card) => (
+          <KpiCard
+            href={card.href}
+            icon={card.icon}
+            key={card.href}
+            label={card.label}
+            loading={card.query.isLoading}
+            tone={card.tone}
+            trend={isAllLocations ? 'Configured master data' : `Scoped to ${locationLabel}`}
+            value={card.valueOverride ?? card.query.data ?? 0}
+          />
+        ))}
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1.3fr_0.7fr]">
+        <ChartCard
+          description="Placeholder trend for upcoming restaurant operations and POS modules."
+          title="Food Operations Trend"
+        />
+        <ChartCard description="Work that needs operational attention." title="Pending Actions">
+          <div className="grid gap-3">
+            <MetricTile
+              icon={ClipboardList}
+              label="Pending Acknowledgements"
+              value={
+                pendingTransfersQuery.isLoading
+                  ? '...'
+                  : (pendingTransfersQuery.data?.meta.total ?? 0)
+              }
+            />
+            <MetricTile
+              icon={ArrowRightLeft}
+              label="Recent Transfers"
+              value={
+                recentTransfersQuery.isLoading ? '...' : (recentTransfersQuery.data?.length ?? 0)
+              }
+            />
+            <MetricTile
+              icon={PackageOpen}
+              label="Recent GRNs"
+              value={recentGrnsQuery.isLoading ? '...' : (recentGrnsQuery.data?.length ?? 0)}
+            />
+          </div>
+        </ChartCard>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <ChartCard className="xl:col-span-1" title="Recent GRNs">
+          {recentGrnsQuery.isLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : recentGrnsQuery.data && recentGrnsQuery.data.length > 0 ? (
+            <div className="space-y-3">
+              {recentGrnsQuery.data.map((grn) => (
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                  href="/inventory/grns"
+                  key={grn.id}
+                >
+                  <div>
+                    <p className="font-medium text-slate-950 dark:text-white">{grn.grnNumber}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {grn.store.storeName} - {formatDate(grn.receivedDate)}
+                    </p>
+                  </div>
+                  <DesignStatusBadge status={grn.status} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState title="No recent GRNs" description="Posted GRNs will appear here." />
+          )}
+        </ChartCard>
+
+        <ChartCard className="xl:col-span-1" title="Recent Transfers">
+          {recentTransfersQuery.isLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : recentTransfersQuery.data && recentTransfersQuery.data.length > 0 ? (
+            <div className="space-y-3">
+              {recentTransfersQuery.data.map((transfer) => (
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900"
+                  href="/inventory/transfers"
+                  key={transfer.id}
+                >
+                  <div>
+                    <p className="font-medium text-slate-950 dark:text-white">
+                      {transfer.transferNumber}
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {transfer.sourceType} to {transfer.destinationType} -{' '}
+                      {formatDate(transfer.transferDate)}
+                    </p>
+                  </div>
+                  <DesignStatusBadge status={transfer.status} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No recent transfers"
+              description="Dispatched transfers will appear here."
+            />
+          )}
+        </ChartCard>
+
+        <ChartCard className="xl:col-span-1" title="Pending Acknowledgements">
+          {pendingTransfersQuery.isLoading ? (
+            <LoadingSkeleton rows={5} />
+          ) : pendingTransfersQuery.data?.items.length ? (
+            <div className="space-y-3">
+              {pendingTransfersQuery.data.items.map((transfer) => (
+                <Link
+                  className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 transition hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:hover:bg-amber-900"
+                  href="/inventory/transfers"
+                  key={transfer.id}
+                >
+                  <div>
+                    <p className="font-medium text-slate-950 dark:text-white">
+                      {transfer.transferNumber}
+                    </p>
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      Awaiting restaurant acknowledgement
+                    </p>
+                  </div>
+                  <DesignStatusBadge status={transfer.status} />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No pending acknowledgements"
+              description="Restaurant acknowledgement tasks are clear."
+            />
+          )}
+        </ChartCard>
       </div>
     </section>
   );

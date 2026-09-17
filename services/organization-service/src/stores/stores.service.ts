@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AuditLogService } from '../common/audit/audit-log.service';
 import { getPageMeta, getPagination } from '../common/pagination';
@@ -110,7 +116,7 @@ export class StoresService {
           await this.assertActiveLocation(dto.locationId, dto.hospitalId, tx);
         }
 
-        await this.assertUniqueStoreCode(dto.hospitalId, dto.storeCode, undefined, tx);
+        const storeCode = await this.generateUniqueStoreCode(tx);
 
         const store = await this.stores.create(
           {
@@ -119,7 +125,7 @@ export class StoresService {
             hospitalId: dto.hospitalId,
             isActive: dto.isActive ?? true,
             locationId: dto.locationId,
-            storeCode: dto.storeCode,
+            storeCode,
             storeName: dto.storeName,
             storeType: dto.storeType,
             updatedBy: context.actorId
@@ -171,6 +177,10 @@ export class StoresService {
         }
 
         if (dto.isActive !== undefined) {
+          if (dto.isActive && dto.hospitalId === undefined && !existing.hospital.isActive) {
+            throw new BadRequestException('Location is inactive. Store cannot be activated.');
+          }
+
           data.isActive = dto.isActive;
         }
 
@@ -300,6 +310,25 @@ export class StoresService {
     if (store) {
       throw new ConflictException('Store code already exists within hospital');
     }
+  }
+
+  private async generateUniqueStoreCode(client: StoreClient): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const nextValue = await this.stores.getNextStoreCodeSequenceValue(client);
+
+      if (!Number.isSafeInteger(nextValue) || nextValue < 1) {
+        throw new InternalServerErrorException('Unable to generate store code');
+      }
+
+      const storeCode = `STR${String(nextValue).padStart(4, '0')}`;
+      const existing = await this.stores.findByCode(storeCode, undefined, client);
+
+      if (!existing) {
+        return storeCode;
+      }
+    }
+
+    throw new ConflictException('Store code already exists');
   }
 
   private async findActiveStore(id: string, client?: StoreClient): Promise<StoreWithRelations> {

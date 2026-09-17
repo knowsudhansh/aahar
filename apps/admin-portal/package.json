@@ -6,7 +6,7 @@
     "build": "next build",
     "dev": "next dev --turbopack",
     "lint": "eslint . --max-warnings 0",
-    "start": "next start",
+    "start": "node scripts/start.mjs",
     "test": "node -e \"console.log('No tests configured yet')\"",
     "typecheck": "tsc --noEmit"
   },

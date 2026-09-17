@@ -11,6 +11,10 @@ export type KitchenWithRelations = Prisma.KitchenGetPayload<{ include: typeof ki
 
 type KitchenClient = Prisma.TransactionClient | PrismaService;
 
+interface KitchenCodeSequenceRow {
+  nextValue: bigint;
+}
+
 @Injectable()
 export class KitchensRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -84,6 +88,29 @@ export class KitchensRepository {
     });
   }
 
+  async findByCode(
+    kitchenCode: string,
+    excludeId?: string,
+    client: KitchenClient = this.prisma,
+  ): Promise<KitchenWithRelations | null> {
+    return client.kitchen.findFirst({
+      include: kitchenInclude,
+      where: {
+        kitchenCode,
+        ...(excludeId ? { id: { not: excludeId } } : {})
+      }
+    });
+  }
+
+  async getNextKitchenCodeSequenceValue(client: KitchenClient): Promise<number> {
+    const rows = await client.$queryRaw<KitchenCodeSequenceRow[]>`
+      SELECT nextval('kitchen_code_sequence')::bigint AS "nextValue"
+    `;
+    const nextValue = rows[0]?.nextValue;
+
+    return typeof nextValue === 'bigint' ? Number(nextValue) : Number(nextValue ?? 0);
+  }
+
   async findMany(args: Prisma.KitchenFindManyArgs): Promise<KitchenWithRelations[]> {
     return this.prisma.kitchen.findMany({
       ...args,
@@ -92,6 +119,16 @@ export class KitchensRepository {
   }
 
   async unlinkRestaurants(kitchenId: string, client: KitchenClient): Promise<void> {
+    await client.restaurantKitchen.updateMany({
+      data: {
+        deletedAt: new Date(),
+        isActive: false
+      },
+      where: {
+        deletedAt: null,
+        kitchenId
+      }
+    });
     await client.restaurant.updateMany({
       data: {
         kitchenId: null
